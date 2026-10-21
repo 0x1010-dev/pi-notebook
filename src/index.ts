@@ -160,10 +160,11 @@ export default function notebook(pi: ExtensionAPI) {
       return;
     }
     ctx.ui.setStatus(STATUS_KEY, undefined);
+    // Re-registering moves the row last, i.e. between other widgets (like todos) and the editor.
     ctx.ui.setWidget(
       STATUS_KEY,
       (_tui, theme) => ({
-        render: (width: number) => [truncateToWidth(` ${statusLine(theme, info)}`, width)],
+        render: (width: number) => [truncateToWidth(statusLine(theme, info), width)],
         invalidate: () => {},
       }),
       { placement: cfg.statusPlacement },
@@ -430,7 +431,10 @@ export default function notebook(pi: ExtensionAPI) {
       fired,
       turnsSinceNudge,
     );
-    if (!kind) return;
+    if (!kind) {
+      refreshStatus(ctx);
+      return;
+    }
 
     fired.add(kind);
     turnsSinceNudge = 0;

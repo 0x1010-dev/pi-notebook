@@ -63,7 +63,7 @@ In `~/.pi/agent/settings.json`:
     "guard": true,
     "refreshSection": "session",
     "autoRecall": 3,
-    "statusPlacement": "belowEditor"
+    "statusPlacement": "aboveEditor"
   }
 }
 ```
@@ -72,7 +72,7 @@ In `~/.pi/agent/settings.json`:
 - `refreshSection`: `session` builds the injected notebook section once per session (and after compaction or `/nb:*` commands) so the prompt prefix stays cache-friendly. `turn` rebuilds it every turn.
 - `autoRecall`: how many entries matching your prompt are attached as a hidden note. `0` disables.
 - `wrapAtContextPercent`: context usage that triggers a save-before-compaction nudge, once per compaction cycle. `0` disables.
-- `statusPlacement`: `belowEditor` or `aboveEditor` gives the status a row of its own; `footer` shares the footer status line with other extensions.
+- `statusPlacement`: `aboveEditor` (default) or `belowEditor` gives the status a row of its own; above the editor it stays below other widgets such as the todo panel. `footer` shares the footer status line with other extensions.
 
 ## Works well with
 

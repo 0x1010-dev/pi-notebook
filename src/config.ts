@@ -44,7 +44,7 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   guard: true,
   refreshSection: "session",
   autoRecall: 3,
-  statusPlacement: "belowEditor",
+  statusPlacement: "aboveEditor",
 };
 
 /** Reads the "notebook" key of Pi's settings.json. */
