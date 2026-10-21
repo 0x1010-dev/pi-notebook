@@ -40,7 +40,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 
 ## Status line
 
-`◆ 📓 · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work`
+`◆ NB · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work`
 
 Signals are checked after every model turn. When one fires, the model gets a short hidden note (asking it to act at its next natural stopping point) and the status line shows a tip. Signals: a commit or completed todo, recovering from repeated tool errors, no handoff yet, a long stretch without saving, and context usage passing `wrapAtContextPercent` (to save before compaction). Each fires once until the next save, with a cooldown between notes.
 

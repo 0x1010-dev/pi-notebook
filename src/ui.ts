@@ -42,12 +42,12 @@ function summary(th: Theme, entries: Entry[]): string {
   return `${th.fg("text", `${c.d}d`)} ${th.fg("text", `${c.l}l`)}`;
 }
 
-/** Footer status, e.g. `◆ 📓 · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work` */
+/** Footer status, e.g. `◆ NB · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work` */
 export function statusLine(th: Theme, s: StatusInfo): string {
   const sep = th.fg("dim", " · ");
   const lit = !!s.scope || s.globalEntries.length > 0;
   const parts = [
-    `${th.fg(lit ? "accent" : "dim", lit ? "◆" : "◇")} ${th.fg(lit ? "muted" : "dim", "📓")}`,
+    `${th.fg(lit ? "accent" : "dim", lit ? "◆" : "◇")} ${th.fg(lit ? "muted" : "dim", "NB")}`,
   ];
   let tip = s.hint;
 
