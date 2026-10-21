@@ -59,7 +59,10 @@ export function statusLine(th: Theme, s: StatusInfo): string {
       parts.push(
         stale
           ? th.fg("warning", `handoff ${age} old`)
-          : th.fg("muted", `handoff updated ${age === "0m" ? "just now" : `${age} ago`}`),
+          : th.fg(
+              "muted",
+              `handoff updated ${age === "0m" ? "just now" : `${age} ago`}`,
+            ),
       );
     } else {
       parts.push(th.fg("dim", "no handoff"));
@@ -74,7 +77,9 @@ export function statusLine(th: Theme, s: StatusInfo): string {
   }
   if (tip) {
     const color = s.hint ? "accent" : "dim";
-    parts.push(`${th.fg("dim", "Tip:")} ${th.fg(color, tip.command)} ${th.fg("dim", tip.reason)}`);
+    parts.push(
+      `${th.fg("dim", "Tip:")} ${th.fg(color, tip.command)} ${th.fg("dim", tip.reason)}`,
+    );
   }
   return parts.join(sep);
 }

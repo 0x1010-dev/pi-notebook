@@ -1,4 +1,4 @@
-export type NudgeKind = "milestone" | "lesson" | "checkpoint";
+export type NudgeKind = "milestone" | "lesson" | "handoff" | "checkpoint";
 
 export interface RunFacts {
   committed: boolean;
@@ -28,15 +28,19 @@ export function looksLikePreference(text: string): boolean {
 
 export const COMMIT_RE = /\bgit\b[^\n|;&]*\bcommit\b/;
 
+export const HANDOFF_AFTER_RUNS = 3;
+
 /** Highest-priority nudge for a finished run, if any. */
 export function detectNudge(
   facts: RunFacts,
   runsSinceSave: number,
   checkpointRuns: number,
+  handoffMissing = false,
 ): NudgeKind | undefined {
   if (facts.saved) return undefined;
   if (facts.committed || facts.todosFinished) return "milestone";
   if (facts.recovered) return "lesson";
+  if (handoffMissing && runsSinceSave >= HANDOFF_AFTER_RUNS) return "handoff";
   if (runsSinceSave >= checkpointRuns) return "checkpoint";
   return undefined;
 }
@@ -49,6 +53,8 @@ export const NUDGE_TEXT: Record<NudgeKind, string> = {
     "[pi-notebook] A unit of work finished in the previous run. If it involved a choice between real alternatives or solved a non-obvious problem, record it with memory_save, and call handoff_update with the new state. Otherwise ignore this note.",
   lesson:
     "[pi-notebook] The previous run recovered from failing tool calls. If the cause and fix are non-obvious and likely to recur, record them with memory_save kind lesson. Otherwise ignore this note.",
+  handoff:
+    "[pi-notebook] This project has no handoff yet. If there is a goal or plan in progress, call handoff_update now so a later session can resume it. Otherwise ignore this note.",
   checkpoint:
     "[pi-notebook] Many runs since the last notebook update. If the work state changed, call handoff_update. Otherwise ignore this note.",
 };
@@ -61,5 +67,6 @@ export interface Hint {
 export const NUDGE_HINT: Record<NudgeKind, Hint> = {
   milestone: { command: "/nb:wrap", reason: "to record finished work" },
   lesson: { command: "/nb:wrap", reason: "to record the fix" },
+  handoff: { command: "/nb:wrap", reason: "to save the plan" },
   checkpoint: { command: "/nb:wrap", reason: "to save progress" },
 };

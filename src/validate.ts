@@ -3,7 +3,10 @@ import type { EntryKind } from "./store.ts";
 const SECRET_PATTERNS: [string, RegExp][] = [
   ["private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ["AWS access key", /\b(AKIA|ASIA)[0-9A-Z]{16}\b/],
-  ["GitHub token", /\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b/],
+  [
+    "GitHub token",
+    /\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b/,
+  ],
   ["API key", /\bsk-(ant-)?[A-Za-z0-9_-]{20,}\b/],
   ["Slack token", /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/],
   ["JWT", /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/],
@@ -29,10 +32,15 @@ const SECTIONS: Record<EntryKind, string[]> = {
 };
 
 const has = (body: string, label: string) =>
-  new RegExp(`(^|\\n)\\s*(#{1,6}\\s*)?\\**${label}\\**\\s*(:|\\n)`, "i").test(body);
+  new RegExp(`(^|\\n)\\s*(#{1,6}\\s*)?\\**${label}\\**\\s*(:|\\n)`, "i").test(
+    body,
+  );
 
 /** Error message when the body lacks the required sections. */
-export function checkStructure(kind: EntryKind, body: string): string | undefined {
+export function checkStructure(
+  kind: EntryKind,
+  body: string,
+): string | undefined {
   const missing = SECTIONS[kind].filter((s) => !has(body, s));
   if (missing.length === 0) return undefined;
   const example = SECTIONS[kind].map((s) => `${s}: ...`).join("\n");

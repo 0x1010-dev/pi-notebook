@@ -6,13 +6,13 @@ Everything is plain files. Nothing calls the model behind your back: memory is w
 
 ## What it remembers
 
-| Kind | Test | Stored in | Seen by the model |
-|---|---|---|---|
-| preference | How you like things done, anywhere | `~/.pi/agent/AGENTS.md` (managed section) | Always |
-| convention | A rule for this repository | project `AGENTS.md` (managed section) | Always |
-| decision | A choice between real alternatives | `.pi/notebook/decisions/` | Title always, body on demand |
-| lesson | A non-obvious problem and its fix | `.pi/notebook/lessons/` | Title always, body on demand |
-| handoff | Current goal, status, next steps | `.pi/notebook/handoff.md` (git-ignored) | Always, inside the project |
+| Kind       | Test                               | Stored in                                 | Seen by the model            |
+| ---------- | ---------------------------------- | ----------------------------------------- | ---------------------------- |
+| preference | How you like things done, anywhere | `~/.pi/agent/AGENTS.md` (managed section) | Always                       |
+| convention | A rule for this repository         | project `AGENTS.md` (managed section)     | Always                       |
+| decision   | A choice between real alternatives | `.pi/notebook/decisions/`                 | Title always, body on demand |
+| lesson     | A non-obvious problem and its fix  | `.pi/notebook/lessons/`                   | Title always, body on demand |
+| handoff    | Current goal, status, next steps   | `.pi/notebook/handoff.md` (git-ignored)   | Always, inside the project   |
 
 Decisions and lessons can also be global (`~/.pi/agent/pi-notebook/global/`) for knowledge about your machine and tools rather than one repo.
 
@@ -29,14 +29,14 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 
 ## Commands
 
-| Command | Does |
-|---|---|
-| `/nb` | Show the notebook |
-| `/nb:init [repo\|local]` | Create a notebook for this project |
-| `/nb:remember <text>` | Save a preference or convention without the model |
-| `/nb:prefs` | Edit preferences or conventions by hand |
-| `/nb:wrap` | Ask the model to record decisions, lessons and the handoff |
-| `/nb:curate` | Ask the model to merge duplicates and retire stale entries |
+| Command                  | Does                                                       |
+| ------------------------ | ---------------------------------------------------------- |
+| `/nb`                    | Show the notebook                                          |
+| `/nb:init [repo\|local]` | Create a notebook for this project                         |
+| `/nb:remember <text>`    | Save a preference or convention without the model          |
+| `/nb:prefs`              | Edit preferences or conventions by hand                    |
+| `/nb:wrap`               | Ask the model to record decisions, lessons and the handoff |
+| `/nb:curate`             | Ask the model to merge duplicates and retire stale entries |
 
 ## Status line
 

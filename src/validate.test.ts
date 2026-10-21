@@ -6,9 +6,18 @@ test("finds common secrets", () => {
   assert.equal(findSecret("key AKIAABCDEFGHIJKLMNOP here"), "AWS access key");
   assert.equal(findSecret(`use ghp_${"a".repeat(36)}`), "GitHub token");
   assert.equal(findSecret(`sk-ant-${"x".repeat(30)}`), "API key");
-  assert.equal(findSecret("postgres://admin:hunter22@db:5432/app"), "credentials in URL");
-  assert.equal(findSecret("set PASSWORD=hunter22 in .env"), "secret assignment");
-  assert.equal(findSecret("-----BEGIN OPENSSH PRIVATE KEY-----"), "private key");
+  assert.equal(
+    findSecret("postgres://admin:hunter22@db:5432/app"),
+    "credentials in URL",
+  );
+  assert.equal(
+    findSecret("set PASSWORD=hunter22 in .env"),
+    "secret assignment",
+  );
+  assert.equal(
+    findSecret("-----BEGIN OPENSSH PRIVATE KEY-----"),
+    "private key",
+  );
 });
 
 test("allows placeholders and prose", () => {
@@ -20,9 +29,30 @@ test("allows placeholders and prose", () => {
 });
 
 test("requires entry sections", () => {
-  assert.equal(checkStructure("lesson", "Symptom: x\nCause: y\nFix: z"), undefined);
-  assert.equal(checkStructure("decision", "## Context\nx\n## Decision\ny\n## Consequences\nz"), undefined);
-  assert.equal(checkStructure("decision", "**Context**: a\n**Decision**: b\n**Consequences**: c"), undefined);
-  assert.match(checkStructure("lesson", "Symptom: x\nFix: z") ?? "", /missing Cause/);
-  assert.match(checkStructure("decision", "we picked sqlite") ?? "", /missing Context, Decision, Consequences/);
+  assert.equal(
+    checkStructure("lesson", "Symptom: x\nCause: y\nFix: z"),
+    undefined,
+  );
+  assert.equal(
+    checkStructure(
+      "decision",
+      "## Context\nx\n## Decision\ny\n## Consequences\nz",
+    ),
+    undefined,
+  );
+  assert.equal(
+    checkStructure(
+      "decision",
+      "**Context**: a\n**Decision**: b\n**Consequences**: c",
+    ),
+    undefined,
+  );
+  assert.match(
+    checkStructure("lesson", "Symptom: x\nFix: z") ?? "",
+    /missing Cause/,
+  );
+  assert.match(
+    checkStructure("decision", "we picked sqlite") ?? "",
+    /missing Context, Decision, Consequences/,
+  );
 });

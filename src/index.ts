@@ -107,6 +107,7 @@ export default function notebook(pi: ExtensionAPI) {
   let hintAge = 0;
   let suggested = new Set<string>();
   let runsSinceSave = 0;
+  let handoffNudged = false;
   let pendingNudge: NudgeKind | undefined;
   let suppressNudgeOnce = false;
   let run = freshRun();
@@ -116,7 +117,10 @@ export default function notebook(pi: ExtensionAPI) {
   let recalled = new Set<string>();
   // Frozen per session so the system prompt prefix (and the model's KV cache) stays stable.
   let snapshot:
-    | { section: string; files: { path: string; content: string; where: "start" | "end" }[] }
+    | {
+        section: string;
+        files: { path: string; content: string; where: "start" | "end" }[];
+      }
     | undefined;
   const invalidate = () => {
     snapshot = undefined;
@@ -244,6 +248,7 @@ export default function notebook(pi: ExtensionAPI) {
     setHint(undefined);
     suggested = new Set();
     runsSinceSave = 0;
+    handoffNudged = false;
     pendingNudge = undefined;
     refreshStatus(ctx);
 
@@ -262,18 +267,23 @@ export default function notebook(pi: ExtensionAPI) {
     const { scope } = locate(ctx.cwd);
     const h = scope ? readHandoff(scope) : undefined;
     const fresh = h && Date.now() - Date.parse(h.updated) < 10 * 60_000;
-    if (scope && !fresh) setHint({ command: "/nb:wrap", reason: "to save progress" });
+    if (scope && !fresh)
+      setHint({ command: "/nb:wrap", reason: "to save progress" });
     refreshStatus(ctx);
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
     const { project, scope, global } = locate(ctx.cwd);
     if (!snapshot || cfg.refreshSection === "turn") {
-      const files: { path: string; content: string; where: "start" | "end" }[] = [];
+      const files: { path: string; content: string; where: "start" | "end" }[] =
+        [];
       const g = readIfExists(global.agentsFile);
-      if (g !== undefined) files.push({ path: global.agentsFile, content: g, where: "start" });
-      const p = scope?.mode === "repo" ? readIfExists(scope.agentsFile) : undefined;
-      if (scope && p !== undefined) files.push({ path: scope.agentsFile, content: p, where: "end" });
+      if (g !== undefined)
+        files.push({ path: global.agentsFile, content: g, where: "start" });
+      const p =
+        scope?.mode === "repo" ? readIfExists(scope.agentsFile) : undefined;
+      if (scope && p !== undefined)
+        files.push({ path: scope.agentsFile, content: p, where: "end" });
       snapshot = {
         section: buildSection({
           project,
@@ -287,7 +297,8 @@ export default function notebook(pi: ExtensionAPI) {
     }
     const opts = event.systemPromptOptions;
     opts.sections.notebook = snapshot.section;
-    for (const f of snapshot.files) syncContextFile(opts.contextFiles, f.path, f.content, f.where);
+    for (const f of snapshot.files)
+      syncContextFile(opts.contextFiles, f.path, f.content, f.where);
 
     const suppress = suppressNudgeOnce;
     suppressNudgeOnce = false;
@@ -296,11 +307,14 @@ export default function notebook(pi: ExtensionAPI) {
     if (suppress || event.messageType !== "user") return;
 
     const notes: string[] = [];
-    if (cfg.nudgeModel && looksLikePreference(event.prompt)) notes.push(PREFERENCE_NUDGE);
+    if (cfg.nudgeModel && looksLikePreference(event.prompt))
+      notes.push(PREFERENCE_NUDGE);
     if (cfg.nudgeModel && queued) notes.push(NUDGE_TEXT[queued]);
-    const hits = recall(scope ? [scope, global] : [global], event.prompt, cfg.autoRecall).filter(
-      (e) => !recalled.has(ref(e)),
-    );
+    const hits = recall(
+      scope ? [scope, global] : [global],
+      event.prompt,
+      cfg.autoRecall,
+    ).filter((e) => !recalled.has(ref(e)));
     if (hits.length) {
       for (const e of hits) recalled.add(ref(e));
       const clip = (b: string) => (b.length > 600 ? `${b.slice(0, 600)}…` : b);
@@ -341,7 +355,8 @@ export default function notebook(pi: ExtensionAPI) {
     });
     if (verdict?.action === "block")
       return { block: true, reason: verdict.reason };
-    if (verdict?.action === "warn") warnings.set(event.toolCallId, verdict.reason);
+    if (verdict?.action === "warn")
+      warnings.set(event.toolCallId, verdict.reason);
   });
 
   pi.on("tool_result", async (event, ctx) => {
@@ -359,7 +374,10 @@ export default function notebook(pi: ExtensionAPI) {
 
     if (warning && !event.isError) {
       if (ctx.hasUI)
-        ctx.ui.notify("◆ The model changed the pi-notebook section of AGENTS.md", "warning");
+        ctx.ui.notify(
+          "◆ The model changed the pi-notebook section of AGENTS.md",
+          "warning",
+        );
       return {
         content: [...event.content, { type: "text", text: warning }],
         structuredContent: event.structuredContent,
@@ -373,16 +391,18 @@ export default function notebook(pi: ExtensionAPI) {
       openTodosAtStart > 0 && todos.open.length === 0 && todos.completed > 0;
     if (!run.saved) runsSinceSave++;
 
-    const kind = detectNudge(run, runsSinceSave, cfg.checkpointRuns);
+    const { scope, global } = locate(ctx.cwd);
+    const handoffMissing = !!scope && !handoffNudged && !readHandoff(scope);
+    const kind = detectNudge(run, runsSinceSave, cfg.checkpointRuns, handoffMissing);
     if (kind) {
       if (cfg.nudgeModel) pendingNudge = kind;
       setHint(NUDGE_HINT[kind]);
+      if (kind === "handoff") handoffNudged = true;
       if (kind === "checkpoint") runsSinceSave = 0;
     } else if (hint && ++hintAge >= HINT_TTL_RUNS) {
       setHint(undefined);
     }
 
-    const { scope, global } = locate(ctx.cwd);
     if (!hint) {
       const state = loadState();
       const fresh = [scope, global]
@@ -547,7 +567,11 @@ export default function notebook(pi: ExtensionAPI) {
           content: text(
             `Not saved: similar to ${r} "${similar.title}". To replace it, call again with supersedes ["${r}"]. If it is genuinely different, call again with force: true. If it adds nothing, skip it.`,
           ),
-          details: { skipped: true, ref: r, title: similar.title } as SaveDetails,
+          details: {
+            skipped: true,
+            ref: r,
+            title: similar.title,
+          } as SaveDetails,
         };
       }
       if (scope.kind === "global") {
@@ -561,7 +585,9 @@ export default function notebook(pi: ExtensionAPI) {
           `${oneLine(p.title)}\n\n${preview}`,
         );
         if (!ok)
-          return declined("The user declined. Do not retry or rephrase this save.");
+          return declined(
+            "The user declined. Do not retry or rephrase this save.",
+          );
       }
       const entry = saveEntry(scope, p.kind, p.title, body, supersedes);
       markSaved(ctx);
@@ -621,7 +647,9 @@ export default function notebook(pi: ExtensionAPI) {
     promptSnippet:
       "memory_search: search, list, or read notebook decisions and lessons",
     parameters: Type.Object({
-      query: Type.String({ description: 'Keywords, refs like "D3 L1", or "*"' }),
+      query: Type.String({
+        description: 'Keywords, refs like "D3 L1", or "*"',
+      }),
       limit: Type.Optional(
         Type.Number({ description: "Max keyword results, default 8" }),
       ),
@@ -637,12 +665,17 @@ export default function notebook(pi: ExtensionAPI) {
       if (p.query.trim() === "*") {
         const all = scopes.flatMap((s) => listAll(s));
         return {
-          content: text(all.length ? all.map(head).join("\n") : "The notebook is empty."),
+          content: text(
+            all.length ? all.map(head).join("\n") : "The notebook is empty.",
+          ),
           details: { refs: all.map(label) },
         };
       }
 
-      const words = p.query.trim().split(/[\s,]+/).filter(Boolean);
+      const words = p.query
+        .trim()
+        .split(/[\s,]+/)
+        .filter(Boolean);
       const parsed = words.map(parseRef);
       if (words.length && parsed.every(Boolean)) {
         const found: Entry[] = [];
@@ -741,7 +774,13 @@ export default function notebook(pi: ExtensionAPI) {
         };
       }
       const secret = findSecret(
-        [p.goal, p.status, ...p.next_steps, ...(p.blockers ?? []), p.notes ?? ""].join("\n"),
+        [
+          p.goal,
+          p.status,
+          ...p.next_steps,
+          ...(p.blockers ?? []),
+          p.notes ?? "",
+        ].join("\n"),
       );
       if (secret) throw new Error(secretError(secret));
       writeHandoff(scope, {
@@ -908,7 +947,10 @@ export default function notebook(pi: ExtensionAPI) {
       if (!input) return;
       const secret = findSecret(input);
       if (secret) {
-        ctx.ui.notify(`Not saved: looks like it contains a ${secret}.`, "error");
+        ctx.ui.notify(
+          `Not saved: looks like it contains a ${secret}.`,
+          "error",
+        );
         return;
       }
       const { project, global } = locate(ctx.cwd);
@@ -966,12 +1008,18 @@ export default function notebook(pi: ExtensionAPI) {
         .filter(Boolean);
       const secret = findSecret(lines.join("\n"));
       if (secret) {
-        ctx.ui.notify(`Not saved: looks like it contains a ${secret}.`, "error");
+        ctx.ui.notify(
+          `Not saved: looks like it contains a ${secret}.`,
+          "error",
+        );
         return;
       }
       replaceManaged(file, heading, lines);
       invalidate();
-      ctx.ui.notify(`✓ Saved ${lines.length} ${heading.slice(3).toLowerCase()}`, "info");
+      ctx.ui.notify(
+        `✓ Saved ${lines.length} ${heading.slice(3).toLowerCase()}`,
+        "info",
+      );
       refreshStatus(ctx);
     },
   });

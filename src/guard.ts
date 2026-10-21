@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { MANAGED_END, MANAGED_START } from "./store.ts";
 
 export const FILES_REASON =
-  "Notebook files are managed by pi-notebook and cannot be read, listed or edited directly. Use memory_search (pass refs like \"D3 L1\" for full entries, or \"*\" to list all), memory_save, or handoff_update.";
+  'Notebook files are managed by pi-notebook and cannot be read, listed or edited directly. Use memory_search (pass refs like "D3 L1" for full entries, or "*" to list all), memory_save, or handoff_update.';
 
 export const MANAGED_WARNING =
   "Note: this change touched the pi-notebook section of AGENTS.md. That section is maintained by the extension; prefer memory_save (kind preference or convention) for additions there. If the change was intentional, carry on.";
@@ -52,7 +52,9 @@ function editTouchesBlock(edits: unknown, block: string): boolean {
     const old = typeof e?.oldText === "string" ? e.oldText : "";
     return (
       old.length > 0 &&
-      (block.includes(old) || old.includes(MANAGED_START) || old.includes(MANAGED_END))
+      (block.includes(old) ||
+        old.includes(MANAGED_START) ||
+        old.includes(MANAGED_END))
     );
   });
 }
@@ -65,18 +67,33 @@ export function guardToolCall(g: GuardInput): GuardVerdict | undefined {
 
   if (FILE_TOOLS.has(g.toolName) && typeof g.input.path === "string") {
     const target = resolve(g.cwd, expand(g.input.path, home));
-    if (NOTEBOOK_SEGMENT.test(target) || g.roots.some((r) => inside(target, r))) return block;
+    if (NOTEBOOK_SEGMENT.test(target) || g.roots.some((r) => inside(target, r)))
+      return block;
 
     const agents = g.agentsFiles.find((f) => resolve(f) === target);
     const managed = agents ? managedBlock(agents) : undefined;
-    if (managed && g.toolName === "edit" && editTouchesBlock(g.input.edits, managed)) return warn;
-    if (managed && g.toolName === "write" && !String(g.input.content ?? "").includes(managed)) return warn;
+    if (
+      managed &&
+      g.toolName === "edit" &&
+      editTouchesBlock(g.input.edits, managed)
+    )
+      return warn;
+    if (
+      managed &&
+      g.toolName === "write" &&
+      !String(g.input.content ?? "").includes(managed)
+    )
+      return warn;
   }
 
   if (g.toolName === "bash" && typeof g.input.command === "string") {
     const cmd = g.input.command;
-    const tilde = (r: string) => (r.startsWith(home) ? `~${r.slice(home.length)}` : r);
-    if (NOTEBOOK_IN_SHELL.test(cmd) || g.roots.some((r) => cmd.includes(r) || cmd.includes(tilde(r)))) {
+    const tilde = (r: string) =>
+      r.startsWith(home) ? `~${r.slice(home.length)}` : r;
+    if (
+      NOTEBOOK_IN_SHELL.test(cmd) ||
+      g.roots.some((r) => cmd.includes(r) || cmd.includes(tilde(r)))
+    ) {
       return block;
     }
   }

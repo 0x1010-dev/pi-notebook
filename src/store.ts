@@ -168,7 +168,8 @@ export function saveEntry(
   const existing = listEntries(scope, kind);
   const old = supersedes.map((n) => {
     const hit = existing.find((e) => e.id === n);
-    if (!hit) throw new Error(`${ref({ scope: scope.kind, kind, id: n })} not found`);
+    if (!hit)
+      throw new Error(`${ref({ scope: scope.kind, kind, id: n })} not found`);
     return hit;
   });
   const id = existing.reduce((max, e) => Math.max(max, e.id), 0) + 1;
@@ -189,7 +190,8 @@ export function saveEntry(
     ),
   };
   writeEntry(entry);
-  for (const o of old) writeEntry({ ...o, status: "superseded", supersededBy: id });
+  for (const o of old)
+    writeEntry({ ...o, status: "superseded", supersededBy: id });
   return entry;
 }
 
@@ -242,17 +244,28 @@ export function searchEntries(
       }
       if (score === 0) continue;
       if (entry.status === "superseded") score *= 0.3;
-      hits.push({ entry, score, titleHits, snippet: snippetFor(entry.body, terms) });
+      hits.push({
+        entry,
+        score,
+        titleHits,
+        snippet: snippetFor(entry.body, terms),
+      });
     }
   }
   return hits.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 /** Active entries strongly related to a prompt; cheap enough to run every turn. */
-export function recall(scopes: Scope[], prompt: string, limit: number): Entry[] {
+export function recall(
+  scopes: Scope[],
+  prompt: string,
+  limit: number,
+): Entry[] {
   if (limit <= 0) return [];
   return searchEntries(scopes, prompt, limit * 3)
-    .filter((h) => h.entry.status === "active" && h.titleHits >= 1 && h.score >= 5)
+    .filter(
+      (h) => h.entry.status === "active" && h.titleHits >= 1 && h.score >= 5,
+    )
     .slice(0, limit)
     .map((h) => h.entry);
 }
@@ -332,7 +345,11 @@ export function appendManaged(
 }
 
 /** Replace every managed line, creating the section only when there is something to write. */
-export function replaceManaged(file: string, heading: string, lines: string[]): void {
+export function replaceManaged(
+  file: string,
+  heading: string,
+  lines: string[],
+): void {
   const clean = lines.map(oneLine).filter(Boolean);
   const src = existsSync(file) ? readFileSync(file, "utf8") : "";
   const s = src.indexOf(START);
