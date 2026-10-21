@@ -1,0 +1,45 @@
+{
+  "name": "pi-notebook",
+  "version": "0.1.0",
+  "description": "Durable, file-based memory for Pi tuned for single-stream local models: preferences in AGENTS.md, project decisions and lessons, a cross-session handoff, and zero background model calls.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Luis Bañuelos",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi",
+    "memory",
+    "notebook"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test \"src/**/*.test.ts\""
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "files": [
+    "src",
+    "!src/**/*.test.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "@earendil-works/pi-ai": "^1.3.0",
+    "@earendil-works/pi-coding-agent": "^1.3.0",
+    "@earendil-works/pi-tui": "^1.3.0",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typebox": "^1.4.2",
+    "typescript": "^5.9.0"
+  }
+}
