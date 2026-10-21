@@ -3,7 +3,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { Type } from "typebox";
@@ -146,16 +146,27 @@ export default function notebook(pi: ExtensionAPI) {
   function refreshStatus(ctx: ExtensionContext): void {
     if (!ctx.hasUI) return;
     const { project, scope, global } = locate(ctx.cwd);
-    ctx.ui.setStatus(
+    const info = {
+      project,
+      scope,
+      projectEntries: scope ? listAll(scope) : [],
+      globalEntries: listAll(global),
+      handoff: scope ? readHandoff(scope) : undefined,
+      hint,
+    };
+    if (cfg.statusPlacement === "footer") {
+      ctx.ui.setWidget(STATUS_KEY, undefined);
+      ctx.ui.setStatus(STATUS_KEY, statusLine(ctx.ui.theme, info));
+      return;
+    }
+    ctx.ui.setStatus(STATUS_KEY, undefined);
+    ctx.ui.setWidget(
       STATUS_KEY,
-      statusLine(ctx.ui.theme, {
-        project,
-        scope,
-        projectEntries: scope ? listAll(scope) : [],
-        globalEntries: listAll(global),
-        handoff: scope ? readHandoff(scope) : undefined,
-        hint,
+      (_tui, theme) => ({
+        render: (width: number) => [truncateToWidth(` ${statusLine(theme, info)}`, width)],
+        invalidate: () => {},
       }),
+      { placement: cfg.statusPlacement },
     );
   }
 
