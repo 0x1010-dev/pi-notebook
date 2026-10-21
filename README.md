@@ -14,7 +14,7 @@ Everything is plain files. Nothing calls the model behind your back: memory is w
 | lesson     | A non-obvious problem and its fix  | `.pi/notebook/lessons/`                   | Title always, body on demand |
 | handoff    | Current goal, status, next steps   | `.pi/notebook/handoff.md` (git-ignored)   | Always, inside the project   |
 
-Decisions and lessons can also be global (`~/.pi/agent/pi-notebook/global/`) for knowledge about your machine and tools rather than one repo.
+Decisions and lessons can also be global (`~/.pi/agent/pi-notebook/global/`), but only for facts about your own setup that matter across projects (machines, accounts, shell, installed tools). Everything learned in a project stays there; `/nb:curate` can promote an entry to global later.
 
 Projects are git roots. A project gets a notebook only when you run `/nb:init` or when the model first saves something there and you accept.
 
@@ -42,7 +42,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 
 `◆ Notebook · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work`
 
-Tips appear after a commit, after finishing all todos, after recovering from errors, after many runs without a save, after compaction, or when the model suggests one.
+Signals are checked after every model turn. When one fires, the model gets a short hidden note (asking it to act at its next natural stopping point) and the status line shows a tip. Signals: a commit or completed todo, recovering from repeated tool errors, no handoff yet, a long stretch without saving, and context usage passing `wrapAtContextPercent` (to save before compaction). Each fires once until the next save, with a cooldown between notes.
 
 ## Settings
 
@@ -54,7 +54,10 @@ In `~/.pi/agent/settings.json`:
     "storage": "repo",
     "injectBudgetTokens": 1500,
     "globalIndexLimit": 20,
-    "checkpointRuns": 10,
+    "checkpointTurns": 30,
+    "handoffAfterTurns": 6,
+    "nudgeCooldownTurns": 8,
+    "wrapAtContextPercent": 50,
     "curateAfter": 10,
     "nudgeModel": true,
     "guard": true,
@@ -67,6 +70,7 @@ In `~/.pi/agent/settings.json`:
 - `storage`: default for new notebooks. `repo` keeps it in `.pi/notebook` (commit it), `local` keeps it under `~/.pi/agent/pi-notebook/projects/`.
 - `refreshSection`: `session` builds the injected notebook section once per session (and after compaction or `/nb:*` commands) so the prompt prefix stays cache-friendly. `turn` rebuilds it every turn.
 - `autoRecall`: how many entries matching your prompt are attached as a hidden note. `0` disables.
+- `wrapAtContextPercent`: context usage that triggers a save-before-compaction nudge, once per compaction cycle. `0` disables.
 
 ## Works well with
 

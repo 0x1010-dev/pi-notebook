@@ -25,12 +25,12 @@ import { curatePrompt, wrapPrompt } from "./prompts.ts";
 import {
   COMMIT_RE,
   detectNudge,
-  freshRun,
+  freshSignals,
   type Hint,
   looksLikePreference,
   NUDGE_HINT,
-  NUDGE_TEXT,
   type NudgeKind,
+  nudgeText,
   PREFERENCE_NUDGE,
 } from "./signals.ts";
 import { loadState, saveState } from "./state.ts";
@@ -48,6 +48,7 @@ import {
   recall,
   ref,
   replaceManaged,
+  retireEntry,
   saveEntry,
   searchEntries,
   writeHandoff,
@@ -106,13 +107,15 @@ export default function notebook(pi: ExtensionAPI) {
   let hint: Hint | undefined;
   let hintAge = 0;
   let suggested = new Set<string>();
-  let runsSinceSave = 0;
-  let handoffNudged = false;
   let pendingNudge: NudgeKind | undefined;
+  let signals = freshSignals();
+  let fired = new Set<NudgeKind>();
+  let turnsSinceSave = 0;
+  let turnsSinceNudge = 0;
+  let errorsSinceSuccess = 0;
+  let completedTodos = 0;
+  let contextNudged = false;
   let suppressNudgeOnce = false;
-  let run = freshRun();
-  let errorsThisRun = 0;
-  let openTodosAtStart = 0;
   const warnings = new Map<string, string>();
   let recalled = new Set<string>();
   // Frozen per session so the system prompt prefix (and the model's KV cache) stays stable.
@@ -157,8 +160,9 @@ export default function notebook(pi: ExtensionAPI) {
   }
 
   function markSaved(ctx: ExtensionContext): void {
-    run.saved = true;
-    runsSinceSave = 0;
+    turnsSinceSave = 0;
+    fired = new Set();
+    signals = freshSignals();
     if (hint && hint.command !== "/nb:curate") setHint(undefined);
     refreshStatus(ctx);
   }
@@ -247,9 +251,14 @@ export default function notebook(pi: ExtensionAPI) {
     recalled = new Set();
     setHint(undefined);
     suggested = new Set();
-    runsSinceSave = 0;
-    handoffNudged = false;
     pendingNudge = undefined;
+    signals = freshSignals();
+    fired = new Set();
+    turnsSinceSave = 0;
+    turnsSinceNudge = cfg.nudgeCooldownTurns;
+    errorsSinceSuccess = 0;
+    completedTodos = readTodos(ctx.sessionManager.getBranch()).completed;
+    contextNudged = false;
     refreshStatus(ctx);
 
     if (!ctx.hasUI || (event.reason !== "startup" && event.reason !== "new"))
@@ -264,6 +273,7 @@ export default function notebook(pi: ExtensionAPI) {
 
   pi.on("session_compact", async (_event, ctx) => {
     invalidate();
+    contextNudged = false;
     const { scope } = locate(ctx.cwd);
     const h = scope ? readHandoff(scope) : undefined;
     const fresh = h && Date.now() - Date.parse(h.updated) < 10 * 60_000;
@@ -309,7 +319,7 @@ export default function notebook(pi: ExtensionAPI) {
     const notes: string[] = [];
     if (cfg.nudgeModel && looksLikePreference(event.prompt))
       notes.push(PREFERENCE_NUDGE);
-    if (cfg.nudgeModel && queued) notes.push(NUDGE_TEXT[queued]);
+    if (cfg.nudgeModel && queued) notes.push(nudgeText(queued));
     const hits = recall(
       scope ? [scope, global] : [global],
       event.prompt,
@@ -332,12 +342,6 @@ export default function notebook(pi: ExtensionAPI) {
         display: false,
       },
     };
-  });
-
-  pi.on("agent_start", async (_event, ctx) => {
-    run = freshRun();
-    errorsThisRun = 0;
-    openTodosAtStart = readTodos(ctx.sessionManager.getBranch()).open.length;
   });
 
   pi.on("tool_call", async (event, ctx) => {
@@ -367,10 +371,13 @@ export default function notebook(pi: ExtensionAPI) {
       !event.isError &&
       COMMIT_RE.test(String(event.input.command ?? ""))
     ) {
-      run.committed = true;
+      signals.committed = true;
     }
-    if (event.isError) errorsThisRun++;
-    else if (errorsThisRun >= 2) run.recovered = true;
+    if (event.isError) errorsSinceSuccess++;
+    else {
+      if (errorsSinceSuccess >= 2) signals.recovered = true;
+      errorsSinceSuccess = 0;
+    }
 
     if (warning && !event.isError) {
       if (ctx.hasUI)
@@ -385,24 +392,68 @@ export default function notebook(pi: ExtensionAPI) {
     }
   });
 
+  pi.on("turn_end", async (event, ctx) => {
+    turnsSinceSave++;
+    turnsSinceNudge++;
+    const done = readTodos(ctx.sessionManager.getBranch()).completed;
+    if (done > completedTodos) signals.todoCompleted = true;
+    completedTodos = done;
+
+    const percent = ctx.getContextUsage()?.percent ?? 0;
+    const { scope } = locate(ctx.cwd);
+    const kind = detectNudge(
+      {
+        ...signals,
+        contextHigh:
+          cfg.wrapAtContextPercent > 0 &&
+          !contextNudged &&
+          percent >= cfg.wrapAtContextPercent,
+        handoffMissing: !!scope && !readHandoff(scope),
+        turnsSinceSave,
+      },
+      {
+        checkpointTurns: cfg.checkpointTurns,
+        handoffAfterTurns: cfg.handoffAfterTurns,
+        cooldownTurns: cfg.nudgeCooldownTurns,
+      },
+      fired,
+      turnsSinceNudge,
+    );
+    if (!kind) return;
+
+    fired.add(kind);
+    turnsSinceNudge = 0;
+    if (kind === "context") contextNudged = true;
+    if (kind === "milestone") {
+      signals.committed = false;
+      signals.todoCompleted = false;
+    }
+    if (kind === "lesson") signals.recovered = false;
+    setHint(NUDGE_HINT[kind]);
+    refreshStatus(ctx);
+    if (!cfg.nudgeModel) return;
+    // A final turn has no next request in this run, so defer to the next prompt.
+    if (event.toolResults.length === 0) {
+      pendingNudge = kind;
+      return;
+    }
+    return {
+      entries: [
+        {
+          type: "custom_message",
+          customType: NUDGE_TYPE,
+          content: nudgeText(kind),
+          display: false,
+        },
+      ],
+    };
+  });
+
   pi.on("agent_end", async (_event, ctx) => {
     const todos = readTodos(ctx.sessionManager.getBranch());
-    run.todosFinished =
-      openTodosAtStart > 0 && todos.open.length === 0 && todos.completed > 0;
-    if (!run.saved) runsSinceSave++;
+    if (hint && ++hintAge >= HINT_TTL_RUNS) setHint(undefined);
 
     const { scope, global } = locate(ctx.cwd);
-    const handoffMissing = !!scope && !handoffNudged && !readHandoff(scope);
-    const kind = detectNudge(run, runsSinceSave, cfg.checkpointRuns, handoffMissing);
-    if (kind) {
-      if (cfg.nudgeModel) pendingNudge = kind;
-      setHint(NUDGE_HINT[kind]);
-      if (kind === "handoff") handoffNudged = true;
-      if (kind === "checkpoint") runsSinceSave = 0;
-    } else if (hint && ++hintAge >= HINT_TTL_RUNS) {
-      setHint(undefined);
-    }
-
     if (!hint) {
       const state = loadState();
       const fresh = [scope, global]
@@ -458,13 +509,13 @@ export default function notebook(pi: ExtensionAPI) {
       scope: Type.Optional(
         StringEnum(["project", "global"] as const, {
           description:
-            "Decisions and lessons only. 'global' for knowledge about the machine, tools or environment rather than this repository. Default: project when inside one.",
+            "Decisions and lessons only. Default and usual choice: project. Use 'global' only for facts about the user's own setup that matter across projects (machines, accounts, shell, installed tools, local services), for example 'brew postgres needs a restart after config changes'. Anything learned while working on a project stays in the project, including general language or library knowledge. When unsure, use project.",
         }),
       ),
       supersedes: Type.Optional(
         Type.Array(Type.String(), {
           description:
-            'Refs of entries this one replaces, for example ["D3"]. Use it to merge duplicates or correct outdated entries.',
+            'Refs of entries this one replaces, for example ["D3"]. Use it to merge duplicates or correct outdated entries. When saving globally, project refs promote those entries to global.',
         }),
       ),
       force: Type.Optional(
@@ -543,22 +594,29 @@ export default function notebook(pi: ExtensionAPI) {
           );
         if ("scope" in r) scope = r.scope;
       }
+      const nb = locate(ctx.cwd).scope;
       const supersedes: number[] = [];
+      const promoted: number[] = [];
       for (const raw of p.supersedes ?? []) {
         const parsed = parseRef(raw);
-        if (
-          !parsed ||
-          parsed.kind !== p.kind ||
-          parsed.global !== (scope.kind === "global")
-        ) {
+        if (!parsed || parsed.kind !== p.kind)
           throw new Error(
-            `supersedes must reference ${p.kind}s in the same scope, for example ${ref({ scope: scope.kind, kind: p.kind, id: 3 })}. Got "${raw}".`,
+            `supersedes must reference ${p.kind}s, for example ${ref({ scope: scope.kind, kind: p.kind, id: 3 })}. Got "${raw}".`,
+          );
+        if (parsed.global === (scope.kind === "global")) {
+          supersedes.push(parsed.id);
+        } else if (scope.kind === "global" && nb && getEntry(nb, p.kind, parsed.id)) {
+          promoted.push(parsed.id);
+        } else {
+          throw new Error(
+            scope.kind === "global"
+              ? `${raw} not found in this project's notebook.`
+              : `A project entry cannot replace a global one (${raw}).`,
           );
         }
-        supersedes.push(parsed.id);
       }
       const similar =
-        p.force || supersedes.length
+        p.force || supersedes.length || promoted.length
           ? undefined
           : findSimilar(scope, p.kind, p.title);
       if (similar) {
@@ -590,10 +648,12 @@ export default function notebook(pi: ExtensionAPI) {
           );
       }
       const entry = saveEntry(scope, p.kind, p.title, body, supersedes);
+      for (const id of promoted) retireEntry(nb!, p.kind, id, ref(entry));
       markSaved(ctx);
-      const replaced = supersedes.length
-        ? `, superseding ${(p.supersedes ?? []).join(", ")}`
-        : "";
+      const replaced =
+        supersedes.length || promoted.length
+          ? `, superseding ${(p.supersedes ?? []).join(", ")}`
+          : "";
       return {
         content: text(`Saved ${ref(entry)} "${entry.title}"${replaced}.`),
         details: {
@@ -660,7 +720,7 @@ export default function notebook(pi: ExtensionAPI) {
       const scopes = scope ? [scope, global] : [global];
       const label = (e: Entry) => `${ref(e)} ${e.title}`;
       const head = (e: Entry) =>
-        `${ref(e)} [${e.status}${e.supersededBy ? ` by ${ref({ ...e, id: e.supersededBy })}` : ""}] ${e.title} (${e.date})`;
+        `${ref(e)} [${e.status}${e.supersededBy ? ` by ${e.supersededBy}` : ""}] ${e.title} (${e.date})`;
 
       if (p.query.trim() === "*") {
         const all = scopes.flatMap((s) => listAll(s));

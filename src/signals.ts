@@ -1,22 +1,32 @@
-export type NudgeKind = "milestone" | "lesson" | "handoff" | "checkpoint";
+export type NudgeKind =
+  | "context"
+  | "milestone"
+  | "lesson"
+  | "handoff"
+  | "checkpoint";
 
-export interface RunFacts {
+/** Events observed since the last save or the nudge that consumed them. */
+export interface Signals {
   committed: boolean;
-  /** At least one failed tool call followed by a later success. */
+  /** At least two failed tool calls followed by a success. */
   recovered: boolean;
-  /** Todos went from open to all completed during the run. */
-  todosFinished: boolean;
-  /** A notebook tool saved something during the run. */
-  saved: boolean;
+  todoCompleted: boolean;
 }
 
-export function freshRun(): RunFacts {
-  return {
-    committed: false,
-    recovered: false,
-    todosFinished: false,
-    saved: false,
-  };
+export function freshSignals(): Signals {
+  return { committed: false, recovered: false, todoCompleted: false };
+}
+
+export interface TurnFacts extends Signals {
+  contextHigh: boolean;
+  handoffMissing: boolean;
+  turnsSinceSave: number;
+}
+
+export interface NudgePolicy {
+  checkpointTurns: number;
+  handoffAfterTurns: number;
+  cooldownTurns: number;
 }
 
 const PREFERENCE_RE =
@@ -28,36 +38,56 @@ export function looksLikePreference(text: string): boolean {
 
 export const COMMIT_RE = /\bgit\b[^\n|;&]*\bcommit\b/;
 
-export const HANDOFF_AFTER_RUNS = 3;
-
-/** Highest-priority nudge for a finished run, if any. */
+/**
+ * Highest-priority nudge for a finished turn. Each kind fires once until the next save,
+ * and only `context` may bypass the cooldown.
+ */
 export function detectNudge(
-  facts: RunFacts,
-  runsSinceSave: number,
-  checkpointRuns: number,
-  handoffMissing = false,
+  f: TurnFacts,
+  policy: NudgePolicy,
+  fired: ReadonlySet<NudgeKind>,
+  turnsSinceNudge: number,
 ): NudgeKind | undefined {
-  if (facts.saved) return undefined;
-  if (facts.committed || facts.todosFinished) return "milestone";
-  if (facts.recovered) return "lesson";
-  if (handoffMissing && runsSinceSave >= HANDOFF_AFTER_RUNS) return "handoff";
-  if (runsSinceSave >= checkpointRuns) return "checkpoint";
+  const candidates: [NudgeKind, boolean][] = [
+    ["context", f.contextHigh],
+    ["milestone", f.committed || f.todoCompleted],
+    ["lesson", f.recovered],
+    [
+      "handoff",
+      f.handoffMissing && f.turnsSinceSave >= policy.handoffAfterTurns,
+    ],
+    ["checkpoint", f.turnsSinceSave >= policy.checkpointTurns],
+  ];
+  for (const [kind, on] of candidates) {
+    if (!on || fired.has(kind)) continue;
+    if (kind !== "context" && turnsSinceNudge < policy.cooldownTurns)
+      return undefined;
+    return kind;
+  }
   return undefined;
 }
 
 export const PREFERENCE_NUDGE =
   "[pi-notebook] The user's message may state a lasting preference or repo rule. If it clearly does and is not already recorded, call memory_save once (kind preference or convention). Otherwise ignore this note.";
 
-export const NUDGE_TEXT: Record<NudgeKind, string> = {
-  milestone:
-    "[pi-notebook] A unit of work finished in the previous run. If it involved a choice between real alternatives or solved a non-obvious problem, record it with memory_save, and call handoff_update with the new state. Otherwise ignore this note.",
-  lesson:
-    "[pi-notebook] The previous run recovered from failing tool calls. If the cause and fix are non-obvious and likely to recur, record them with memory_save kind lesson. Otherwise ignore this note.",
-  handoff:
-    "[pi-notebook] This project has no handoff yet. If there is a goal or plan in progress, call handoff_update now so a later session can resume it. Otherwise ignore this note.",
-  checkpoint:
-    "[pi-notebook] Many runs since the last notebook update. If the work state changed, call handoff_update. Otherwise ignore this note.",
-};
+const LATER =
+  "Do it at the next natural stopping point; finish your current step first.";
+
+export function nudgeText(kind: NudgeKind): string {
+  const body: Record<NudgeKind, string> = {
+    context:
+      "The context window is filling up and will be compacted later, which drops details. Record any decisions or non-obvious fixes from this session with memory_save, and update the handoff with handoff_update.",
+    milestone:
+      "A piece of work was just finished (a commit or a completed todo). If it involved a choice between real alternatives or solved a non-obvious problem, record it with memory_save, and update the handoff with handoff_update. Otherwise ignore this note.",
+    lesson:
+      "Recent tool calls failed before succeeding. If the cause and fix are non-obvious and likely to recur, record them with memory_save kind lesson. Otherwise ignore this note.",
+    handoff:
+      "This project has no handoff yet. If there is a goal or plan in progress, call handoff_update so a later session can resume it. Otherwise ignore this note.",
+    checkpoint:
+      "Nothing has been saved to the notebook in a while. If the work state changed, call handoff_update. Otherwise ignore this note.",
+  };
+  return `[pi-notebook] ${body[kind]} ${LATER}`;
+}
 
 export interface Hint {
   command: string;
@@ -65,6 +95,7 @@ export interface Hint {
 }
 
 export const NUDGE_HINT: Record<NudgeKind, Hint> = {
+  context: { command: "/nb:wrap", reason: "to save before compaction" },
   milestone: { command: "/nb:wrap", reason: "to record finished work" },
   lesson: { command: "/nb:wrap", reason: "to record the fix" },
   handoff: { command: "/nb:wrap", reason: "to save the plan" },

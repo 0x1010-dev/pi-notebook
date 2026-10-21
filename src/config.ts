@@ -9,8 +9,14 @@ export interface NotebookConfig {
   injectBudgetTokens: number;
   /** Most recent global entries listed in the injected index. */
   globalIndexLimit: number;
-  /** Agent runs without a save before suggesting /nb:wrap. */
-  checkpointRuns: number;
+  /** Turns without a save before nudging a handoff update. */
+  checkpointTurns: number;
+  /** Turns without a save before nudging when the project has no handoff. */
+  handoffAfterTurns: number;
+  /** Minimum turns between nudges (the context nudge ignores it). */
+  nudgeCooldownTurns: number;
+  /** Context usage percent that triggers a save-before-compaction nudge. 0 disables. */
+  wrapAtContextPercent: number;
   /** New entries since the last curate before suggesting /nb:curate. */
   curateAfter: number;
   /** Send short hidden nudges to the model when signals fire. */
@@ -27,7 +33,10 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   storage: "repo",
   injectBudgetTokens: 1500,
   globalIndexLimit: 20,
-  checkpointRuns: 10,
+  checkpointTurns: 30,
+  handoffAfterTurns: 6,
+  nudgeCooldownTurns: 8,
+  wrapAtContextPercent: 50,
   curateAfter: 10,
   nudgeModel: true,
   guard: true,
@@ -49,11 +58,19 @@ export function loadConfig(): NotebookConfig {
     for (const key of [
       "injectBudgetTokens",
       "globalIndexLimit",
-      "checkpointRuns",
+      "checkpointTurns",
+      "handoffAfterTurns",
+      "nudgeCooldownTurns",
       "curateAfter",
     ] as const) {
       if (typeof raw[key] === "number" && raw[key] > 0) cfg[key] = raw[key];
     }
+    if (
+      typeof raw.wrapAtContextPercent === "number" &&
+      raw.wrapAtContextPercent >= 0 &&
+      raw.wrapAtContextPercent <= 100
+    )
+      cfg.wrapAtContextPercent = raw.wrapAtContextPercent;
     if (typeof raw.nudgeModel === "boolean") cfg.nudgeModel = raw.nudgeModel;
     if (typeof raw.guard === "boolean") cfg.guard = raw.guard;
     if (raw.refreshSection === "session" || raw.refreshSection === "turn")

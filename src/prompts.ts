@@ -22,7 +22,8 @@ export function curatePrompt(skillDirs: string[]): string {
     "2. Merge duplicates: call memory_save with one clear combined entry and set supersedes to the refs it replaces.",
     "3. For entries that are no longer true, save a corrected entry that supersedes them.",
     `4. If three or more lessons describe the same procedure, propose a skill (in ${skillDirs.join(" or ")}) and ask me before writing it.`,
-    "5. Do not try to edit or delete notebook files; those calls are blocked.",
+    "5. If a project entry turns out to apply beyond this project (it is about my own setup, or the same lesson already exists elsewhere), promote it: memory_save with scope global and supersedes set to its project ref. I will be asked to confirm.",
+    "6. Do not try to edit or delete notebook files; those calls are blocked.",
     "Reply with a short summary of the changes.",
   ].join("\n");
 }

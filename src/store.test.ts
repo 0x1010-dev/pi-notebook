@@ -15,6 +15,7 @@ import {
   recall,
   ref,
   replaceManaged,
+  retireEntry,
   saveEntry,
   searchEntries,
   writeHandoff,
@@ -38,12 +39,28 @@ test("saveEntry numbers entries and supersedes", () => {
   assert.equal(b.id, 3);
   const all = listEntries(s, "decision");
   assert.equal(all[0].status, "superseded");
-  assert.equal(all[0].supersededBy, 3);
-  assert.equal(all[1].supersededBy, 3);
+  assert.equal(all[0].supersededBy, "D3");
+  assert.equal(all[1].supersededBy, "D3");
   assert.equal(all[0].title, "Use SQLite: for cache");
   assert.deepEqual(all[2].supersedes, [1, 2]);
   assert.equal(all[2].status, "active");
   assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), "handoff.md\n");
+});
+
+test("retireEntry promotes across scopes and old numeric refs still parse", () => {
+  const project = scope();
+  const global = scope("global");
+  const p = saveEntry(project, "lesson", "Tokio broadcast for fan-out", "x");
+  const g = saveEntry(global, "lesson", "Tokio broadcast for fan-out", "x");
+  retireEntry(project, "lesson", p.id, ref(g));
+  assert.equal(listEntries(project, "lesson")[0].supersededBy, "~L1");
+  assert.throws(() => retireEntry(project, "lesson", 9, "~L1"), /L9 not found/);
+
+  writeFileSync(
+    p.path,
+    "---\nid: 1\nkind: lesson\ntitle: t\nstatus: superseded\nsuperseded_by: 2\n---\n\nx\n",
+  );
+  assert.equal(listEntries(project, "lesson")[0].supersededBy, "L2");
 });
 
 test("saveEntry rejects unknown supersedes", () => {

@@ -20,7 +20,7 @@ const HEADER = [
   "Durable memory that persists across sessions. Indexes below list titles only.",
   "Work with the notebook ONLY through its tools:",
   '- memory_search: find entries by keywords, read entries in full by ref ("D3 L1"), or list all with "*".',
-  "- memory_save: record a preference, convention, decision or lesson.",
+  "- memory_save: record a preference, convention, decision or lesson. Save decisions and lessons to the project unless they are about the user's own setup across projects (machines, accounts, shell, installed tools). When unsure, use project.",
   "- handoff_update: record the current goal, status and next steps of project work. Call it after agreeing on a plan or starting multi-step work, and again when the state changes.",
   "Never read, list, edit or delete notebook files (.pi/notebook, ~/.pi/agent/pi-notebook) with file tools or shell commands. Those calls are blocked.",
   "To add preferences or conventions, use memory_save rather than editing the pi-notebook section of AGENTS.md.",

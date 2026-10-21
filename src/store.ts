@@ -19,7 +19,7 @@ export interface Entry {
   status: EntryStatus;
   date: string;
   supersedes?: number[];
-  supersededBy?: number;
+  supersededBy?: string;
   body: string;
   path: string;
 }
@@ -137,7 +137,11 @@ export function listEntries(scope: Scope, kind: EntryKind): Entry[] {
             .map(Number)
             .filter((n) => !Number.isNaN(n))
         : undefined,
-      supersededBy: meta.superseded_by ? Number(meta.superseded_by) : undefined,
+      supersededBy: meta.superseded_by
+        ? /^\d+$/.test(meta.superseded_by)
+          ? ref({ scope: scope.kind, kind, id: Number(meta.superseded_by) })
+          : meta.superseded_by
+        : undefined,
       body,
       path,
     });
@@ -191,8 +195,20 @@ export function saveEntry(
   };
   writeEntry(entry);
   for (const o of old)
-    writeEntry({ ...o, status: "superseded", supersededBy: id });
+    writeEntry({ ...o, status: "superseded", supersededBy: ref(entry) });
   return entry;
+}
+
+/** Mark an entry superseded by an entry elsewhere, e.g. a project lesson promoted to global. */
+export function retireEntry(
+  scope: Scope,
+  kind: EntryKind,
+  id: number,
+  byRef: string,
+): void {
+  const e = getEntry(scope, kind, id);
+  if (!e) throw new Error(`${ref({ scope: scope.kind, kind, id })} not found`);
+  writeEntry({ ...e, status: "superseded", supersededBy: byRef });
 }
 
 export interface SearchHit {
