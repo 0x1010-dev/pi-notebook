@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { MANAGED_END, MANAGED_START } from "./store.ts";
 
 export const FILES_REASON =
-  'Notebook files are managed by pi-notebook and cannot be read, listed or edited directly. Use memory_search (pass refs like "D3 L1" for full entries, or "*" to list all), memory_save, or handoff_update.';
+  'Notebook files are managed by pi-notebook and cannot be read, listed or edited directly. Use memory_search (pass refs like "D3 L1" for full entries, "*" to list all, or "handoff" for the project handoff), memory_save, or handoff_update.';
 
 export const MANAGED_WARNING =
   "Note: this change touched the pi-notebook section of AGENTS.md. That section is maintained by the extension; prefer memory_save (kind preference or convention) for additions there. If the change was intentional, carry on.";

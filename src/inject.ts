@@ -19,7 +19,7 @@ export interface InjectInput {
 const HEADER = [
   "Durable memory that persists across sessions. The decision and lesson indexes below list titles only.",
   "Work with the notebook ONLY through its tools:",
-  '- memory_search: find entries by keywords, read entries in full by ref ("D3 L1"), or list all with "*".',
+  '- memory_search: find entries by keywords, read entries in full by ref ("D3 L1"), list all with "*", or read the project handoff with "handoff".',
   "- memory_save: record a preference, convention, decision or lesson. Save decisions and lessons to the project unless they are about the user's own setup across projects (machines, accounts, shell, installed tools). When unsure, use project.",
   "- handoff_update: record the current goal, status and next steps of project work. Call it after agreeing on a plan or starting multi-step work, and again when the state changes.",
   "Never read, list, edit or delete notebook files (.pi/notebook, ~/.pi/agent/pi-notebook) with file tools or shell commands. Those calls are blocked.",
@@ -30,19 +30,32 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-function handoffBlock(h: Handoff): string[] {
+const stamp = (h: Handoff) => h.updated.slice(0, 16).replace("T", " ");
+
+function handoffPointer(h: Handoff): string[] {
   const lines = [
-    `<handoff updated="${h.updated.slice(0, 16).replace("T", " ")}">`,
-    "Where project work stands, saved by a previous session. This is the complete handoff, not an index. When the user asks about the plan, status, next steps or where things stand, answer from it first.",
+    `<handoff updated="${stamp(h)}">`,
+    "Where project work stands, saved by a previous session. Summary only.",
   ];
   if (h.goal) lines.push(`Goal: ${h.goal}`);
-  if (h.status) lines.push(`Status: ${h.status}`);
-  if (h.nextSteps.length) lines.push(`Next: ${h.nextSteps.join("; ")}`);
-  if (h.blockers.length) lines.push(`Blockers: ${h.blockers.join("; ")}`);
-  if (h.todos.length) lines.push(`Open todos: ${h.todos.join("; ")}`);
-  if (h.notes) lines.push(`Notes: ${h.notes.replace(/\s+/g, " ")}`);
-  lines.push("</handoff>");
+  if (h.nextSteps[0]) lines.push(`Next: ${h.nextSteps[0]}`);
+  lines.push(
+    'Read the full handoff (status, all next steps, blockers, notes) with memory_search "handoff" before answering about the plan, status or where things stand, and before continuing the work.',
+    "</handoff>",
+  );
   return lines;
+}
+
+export function formatHandoff(h: Handoff): string {
+  const list = (xs: string[]) => xs.map((x) => `- ${x}`).join("\n");
+  const parts = [`Handoff (updated ${stamp(h)})`];
+  if (h.goal) parts.push(`Goal: ${h.goal}`);
+  if (h.status) parts.push(`Status: ${h.status}`);
+  if (h.nextSteps.length) parts.push(`Next steps:\n${list(h.nextSteps)}`);
+  if (h.blockers.length) parts.push(`Blockers:\n${list(h.blockers)}`);
+  if (h.todos.length) parts.push(`Open todos:\n${list(h.todos)}`);
+  if (h.notes) parts.push(`Notes: ${h.notes}`);
+  return parts.join("\n\n");
 }
 
 /** Newest active entries first, as many as fit the remaining budget. */
@@ -74,7 +87,7 @@ function indexBlock(
 export function buildSection(input: InjectInput): string {
   const { project, scope, global } = input;
   const h = project && scope ? readHandoff(scope) : undefined;
-  const lines = [...(h ? [...handoffBlock(h), ""] : []), ...HEADER, ""];
+  const lines = [...(h ? [...handoffPointer(h), ""] : []), ...HEADER, ""];
   let budget = input.budgetTokens * 4 - lines.join("\n").length;
   const push = (block: string[]) => {
     if (block.length === 0) return;

@@ -12,7 +12,7 @@ Everything is plain files. Nothing calls the model behind your back: memory is w
 | convention | A rule for this repository         | project `AGENTS.md` (managed section)     | Always                       |
 | decision   | A choice between real alternatives | `.pi/notebook/decisions/`                 | Title always, body on demand |
 | lesson     | A non-obvious problem and its fix  | `.pi/notebook/lessons/`                   | Title always, body on demand |
-| handoff    | Current goal, status, next steps   | `.pi/notebook/handoff.md` (git-ignored)   | Always, inside the project   |
+| handoff    | Current goal, status, next steps   | `.pi/notebook/handoff.md` (git-ignored)   | Summary always inside the project; full via `memory_search` |
 
 Decisions and lessons can also be global (`~/.pi/agent/pi-notebook/global/`), but only for facts about your own setup that matter across projects (machines, accounts, shell, installed tools). Everything learned in a project stays there; `/nb:curate` can promote an entry to global later.
 
@@ -21,7 +21,7 @@ Projects are git roots. A project gets a notebook only when you run `/nb:init` o
 ## Tools (for the model)
 
 - `memory_save`: save a preference, convention, decision or lesson. Preferences, conventions and global entries ask you to confirm. Saves are rejected when they look like they contain secrets, when decisions or lessons lack their sections (Context/Decision/Consequences, Symptom/Cause/Fix), or when a similar entry already exists.
-- `memory_search`: keyword search, full entries by ref (`"D3 ~L1"`), or `"*"` to list everything.
+- `memory_search`: keyword search, full entries by ref (`"D3 ~L1"`), `"*"` to list everything (handoff first), or `"handoff"` for the full project handoff.
 - `handoff_update`: replace the project handoff.
 - `suggest_command`: put a `/nb:*` tip in the status line. Never interrupts.
 

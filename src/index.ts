@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { Type } from "typebox";
 import { loadConfig } from "./config.ts";
 import { guardToolCall } from "./guard.ts";
-import { buildSection, estimateTokens } from "./inject.ts";
+import { buildSection, estimateTokens, formatHandoff } from "./inject.ts";
 import {
   agentDir,
   existingProjectScope,
@@ -718,9 +718,9 @@ export default function notebook(pi: ExtensionAPI) {
     name: "memory_search",
     label: "Notebook",
     description:
-      'Search notebook decisions and lessons (project and global). Pass keywords to search, one or more refs ("D3 ~L1") to read entries in full, or "*" to list every entry.',
+      'Search notebook decisions and lessons (project and global), or read the project handoff. Pass keywords to search, one or more refs ("D3 ~L1") to read entries in full, "*" to list every entry, or "handoff" to read where project work stands.',
     promptSnippet:
-      "memory_search: search, list, or read notebook decisions and lessons",
+      "memory_search: search, list, or read notebook decisions, lessons and the project handoff",
     parameters: Type.Object({
       query: Type.String({
         description: 'Keywords, refs like "D3 L1", or "*"',
@@ -736,21 +736,39 @@ export default function notebook(pi: ExtensionAPI) {
       const label = (e: Entry) => `${ref(e)} ${e.title}`;
       const head = (e: Entry) =>
         `${ref(e)} [${e.status}${e.supersededBy ? ` by ${e.supersededBy}` : ""}] ${e.title} (${e.date})`;
+      const h = scope ? readHandoff(scope) : undefined;
+      const handoffRefs = h ? [`handoff ${h.goal}`] : [];
 
       if (p.query.trim() === "*") {
         const all = scopes.flatMap((s) => listAll(s));
+        const list = all.length
+          ? all.map(head).join("\n")
+          : "The notebook is empty.";
         return {
-          content: text(
-            all.length ? all.map(head).join("\n") : "The notebook is empty.",
-          ),
-          details: { refs: all.map(label) },
+          content: text(h ? `${formatHandoff(h)}\n\n---\n\n${list}` : list),
+          details: { refs: [...handoffRefs, ...all.map(label)] },
         };
       }
 
-      const words = p.query
+      const allWords = p.query
         .trim()
         .split(/[\s,]+/)
         .filter(Boolean);
+      const isHandoff = (w: string) => w.toLowerCase() === "handoff";
+      if (allWords.length && allWords.every(isHandoff)) {
+        return {
+          content: text(
+            h ? formatHandoff(h) : "No handoff for this project yet.",
+          ),
+          details: { refs: handoffRefs },
+        };
+      }
+      const words = allWords.filter((w) => !isHandoff(w));
+      const lead = h && words.length < allWords.length;
+      const reply = (body: string, refs: string[]) => ({
+        content: text(lead ? `${formatHandoff(h)}\n\n---\n\n${body}` : body),
+        details: { refs: lead ? [...handoffRefs, ...refs] : refs },
+      });
       const parsed = words.map(parseRef);
       if (words.length && parsed.every(Boolean)) {
         const found: Entry[] = [];
@@ -763,20 +781,17 @@ export default function notebook(pi: ExtensionAPI) {
         });
         const parts = found.map((e) => `${head(e)}\n\n${e.body}`);
         if (missing.length) parts.push(`Not found: ${missing.join(", ")}`);
-        return {
-          content: text(parts.join("\n\n---\n\n")),
-          details: { refs: found.map(label) },
-        };
+        return reply(parts.join("\n\n---\n\n"), found.map(label));
       }
 
-      const hits = searchEntries(scopes, p.query, p.limit ?? 8);
+      const hits = searchEntries(scopes, words.join(" "), p.limit ?? 8);
       const body = hits.length
-        ? `${hits.map((h) => `${head(h.entry)}\n  ${h.snippet}`).join("\n")}\n\nPass refs to read entries in full.`
+        ? `${hits.map((hit) => `${head(hit.entry)}\n  ${hit.snippet}`).join("\n")}\n\nPass refs to read entries in full.`
         : "No matches.";
-      return {
-        content: text(body),
-        details: { refs: hits.map((h) => label(h.entry)) },
-      };
+      return reply(
+        body,
+        hits.map((hit) => label(hit.entry)),
+      );
     },
 
     renderCall(args, theme) {
