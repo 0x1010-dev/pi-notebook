@@ -17,7 +17,7 @@ export interface InjectInput {
 }
 
 const HEADER = [
-  "Durable memory that persists across sessions. Indexes below list titles only.",
+  "Durable memory that persists across sessions. The decision and lesson indexes below list titles only.",
   "Work with the notebook ONLY through its tools:",
   '- memory_search: find entries by keywords, read entries in full by ref ("D3 L1"), or list all with "*".',
   "- memory_save: record a preference, convention, decision or lesson. Save decisions and lessons to the project unless they are about the user's own setup across projects (machines, accounts, shell, installed tools). When unsure, use project.",
@@ -30,16 +30,18 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-function handoffLines(h: Handoff): string[] {
+function handoffBlock(h: Handoff): string[] {
   const lines = [
-    `Handoff (updated ${h.updated.slice(0, 16).replace("T", " ")}):`,
+    `<handoff updated="${h.updated.slice(0, 16).replace("T", " ")}">`,
+    "Where project work stands, saved by a previous session. This is the complete handoff, not an index. When the user asks about the plan, status, next steps or where things stand, answer from it first.",
   ];
-  if (h.goal) lines.push(`  Goal: ${h.goal}`);
-  if (h.status) lines.push(`  Status: ${h.status}`);
-  if (h.nextSteps.length) lines.push(`  Next: ${h.nextSteps.join("; ")}`);
-  if (h.blockers.length) lines.push(`  Blockers: ${h.blockers.join("; ")}`);
-  if (h.todos.length) lines.push(`  Open todos: ${h.todos.join("; ")}`);
-  if (h.notes) lines.push(`  Notes: ${h.notes.replace(/\s+/g, " ")}`);
+  if (h.goal) lines.push(`Goal: ${h.goal}`);
+  if (h.status) lines.push(`Status: ${h.status}`);
+  if (h.nextSteps.length) lines.push(`Next: ${h.nextSteps.join("; ")}`);
+  if (h.blockers.length) lines.push(`Blockers: ${h.blockers.join("; ")}`);
+  if (h.todos.length) lines.push(`Open todos: ${h.todos.join("; ")}`);
+  if (h.notes) lines.push(`Notes: ${h.notes.replace(/\s+/g, " ")}`);
+  lines.push("</handoff>");
   return lines;
 }
 
@@ -70,7 +72,9 @@ function indexBlock(
 }
 
 export function buildSection(input: InjectInput): string {
-  const lines = [...HEADER, ""];
+  const { project, scope, global } = input;
+  const h = project && scope ? readHandoff(scope) : undefined;
+  const lines = [...(h ? [...handoffBlock(h), ""] : []), ...HEADER, ""];
   let budget = input.budgetTokens * 4 - lines.join("\n").length;
   const push = (block: string[]) => {
     if (block.length === 0) return;
@@ -78,13 +82,10 @@ export function buildSection(input: InjectInput): string {
     budget -= block.join("\n").length + 1;
   };
 
-  const { project, scope, global } = input;
   if (project && scope) {
     push([
       `Project: ${project.name} (${project.root}), ${scope.mode} notebook`,
     ]);
-    const h = readHandoff(scope);
-    if (h) push(handoffLines(h));
     if (scope.mode === "local") {
       const conventions = readManaged(scope.agentsFile);
       if (conventions.length)
