@@ -28,6 +28,7 @@ import {
   freshSignals,
   type Hint,
   looksLikePreference,
+  looksLikeResume,
   NUDGE_HINT,
   type NudgeKind,
   nudgeText,
@@ -39,6 +40,7 @@ import {
   type Entry,
   findSimilar,
   getEntry,
+  type Handoff,
   initScope,
   listAll,
   oneLine,
@@ -53,7 +55,6 @@ import {
   searchEntries,
   writeHandoff,
 } from "./store.ts";
-import { formatTodos, readTodos } from "./todos.ts";
 import { NotebookView, statusLine, type ViewData } from "./ui.ts";
 import { checkStructure, findSecret, secretError } from "./validate.ts";
 
@@ -106,18 +107,17 @@ export default function notebook(pi: ExtensionAPI) {
   let cfg = loadConfig();
   let hint: Hint | undefined;
   let hintAge = 0;
-  let suggested = new Set<string>();
   let pendingNudge: NudgeKind | undefined;
   let signals = freshSignals();
   let fired = new Set<NudgeKind>();
   let turnsSinceSave = 0;
   let turnsSinceNudge = 0;
   let errorsSinceSuccess = 0;
-  let completedTodos = 0;
   let contextNudged = false;
   let suppressNudgeOnce = false;
   const warnings = new Map<string, string>();
   let recalled = new Set<string>();
+  let handoffShown = false;
   // Frozen per session so the system prompt prefix (and the model's KV cache) stays stable.
   let snapshot:
     | {
@@ -261,15 +261,14 @@ export default function notebook(pi: ExtensionAPI) {
     cfg = loadConfig();
     invalidate();
     recalled = new Set();
+    handoffShown = false;
     setHint(undefined);
-    suggested = new Set();
     pendingNudge = undefined;
     signals = freshSignals();
     fired = new Set();
     turnsSinceSave = 0;
     turnsSinceNudge = cfg.nudgeCooldownTurns;
     errorsSinceSuccess = 0;
-    completedTodos = readTodos(ctx.sessionManager.getBranch()).completed;
     contextNudged = false;
     refreshStatus(ctx);
 
@@ -286,6 +285,7 @@ export default function notebook(pi: ExtensionAPI) {
   pi.on("session_compact", async (_event, ctx) => {
     invalidate();
     contextNudged = false;
+    handoffShown = false;
     const { scope } = locate(ctx.cwd);
     const h = scope ? readHandoff(scope) : undefined;
     const fresh = h && Date.now() - Date.parse(h.updated) < 10 * 60_000;
@@ -332,11 +332,23 @@ export default function notebook(pi: ExtensionAPI) {
     if (cfg.nudgeModel && looksLikePreference(event.prompt))
       notes.push(PREFERENCE_NUDGE);
     if (cfg.nudgeModel && queued) notes.push(nudgeText(queued));
-    const hits = recall(
-      scope ? [scope, global] : [global],
-      event.prompt,
-      cfg.autoRecall,
-    ).filter((e) => !recalled.has(ref(e)));
+    const resume =
+      scope && !handoffShown && looksLikeResume(event.prompt)
+        ? readHandoff(scope)
+        : undefined;
+    if (resume) {
+      handoffShown = true;
+      notes.push(
+        `[pi-notebook] The prompt looks like resuming work. Full project handoff:\n\n${formatHandoff(resume)}`,
+      );
+    }
+    const hits = resume
+      ? []
+      : recall(
+          scope ? [scope, global] : [global],
+          event.prompt,
+          cfg.autoRecall,
+        ).filter((e) => !recalled.has(ref(e)));
     if (hits.length) {
       for (const e of hits) recalled.add(ref(e));
       const clip = (b: string) => (b.length > 600 ? `${b.slice(0, 600)}…` : b);
@@ -407,9 +419,6 @@ export default function notebook(pi: ExtensionAPI) {
   pi.on("turn_end", async (event, ctx) => {
     turnsSinceSave++;
     turnsSinceNudge++;
-    const done = readTodos(ctx.sessionManager.getBranch()).completed;
-    if (done > completedTodos) signals.todoCompleted = true;
-    completedTodos = done;
 
     const percent = ctx.getContextUsage()?.percent ?? 0;
     const { scope } = locate(ctx.cwd);
@@ -439,10 +448,7 @@ export default function notebook(pi: ExtensionAPI) {
     fired.add(kind);
     turnsSinceNudge = 0;
     if (kind === "context") contextNudged = true;
-    if (kind === "milestone") {
-      signals.committed = false;
-      signals.todoCompleted = false;
-    }
+    if (kind === "milestone") signals.committed = false;
     if (kind === "lesson") signals.recovered = false;
     setHint(NUDGE_HINT[kind]);
     refreshStatus(ctx);
@@ -465,7 +471,6 @@ export default function notebook(pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async (_event, ctx) => {
-    const todos = readTodos(ctx.sessionManager.getBranch());
     if (hint && ++hintAge >= HINT_TTL_RUNS) setHint(undefined);
 
     const { scope, global } = locate(ctx.cwd);
@@ -480,13 +485,6 @@ export default function notebook(pi: ExtensionAPI) {
         );
       if (fresh >= cfg.curateAfter)
         setHint({ command: "/nb:curate", reason: `to tidy ${fresh} entries` });
-    }
-
-    if (scope) {
-      const h = readHandoff(scope);
-      const lines = formatTodos(todos);
-      if (h && lines.join("\n") !== h.todos.join("\n"))
-        writeHandoff(scope, { ...h, todos: lines });
     }
     refreshStatus(ctx);
   });
@@ -738,6 +736,13 @@ export default function notebook(pi: ExtensionAPI) {
         `${ref(e)} [${e.status}${e.supersededBy ? ` by ${e.supersededBy}` : ""}] ${e.title} (${e.date})`;
       const h = scope ? readHandoff(scope) : undefined;
       const handoffRefs = h ? [`handoff ${h.goal}`] : [];
+      const allWords = p.query
+        .trim()
+        .split(/[\s,]+/)
+        .filter(Boolean);
+      const isHandoff = (w: string) => w.toLowerCase() === "handoff";
+      if (h && (p.query.trim() === "*" || allWords.some(isHandoff)))
+        handoffShown = true;
 
       if (p.query.trim() === "*") {
         const all = scopes.flatMap((s) => listAll(s));
@@ -750,11 +755,6 @@ export default function notebook(pi: ExtensionAPI) {
         };
       }
 
-      const allWords = p.query
-        .trim()
-        .split(/[\s,]+/)
-        .filter(Boolean);
-      const isHandoff = (w: string) => w.toLowerCase() === "handoff";
       if (allWords.length && allWords.every(isHandoff)) {
         return {
           content: text(
@@ -787,7 +787,7 @@ export default function notebook(pi: ExtensionAPI) {
       const hits = searchEntries(scopes, words.join(" "), p.limit ?? 8);
       const body = hits.length
         ? `${hits.map((hit) => `${head(hit.entry)}\n  ${hit.snippet}`).join("\n")}\n\nPass refs to read entries in full.`
-        : "No matches.";
+        : 'No matches. Try other keywords, or "*" to list every entry.';
       return reply(
         body,
         hits.map((hit) => label(hit.entry)),
@@ -822,22 +822,29 @@ export default function notebook(pi: ExtensionAPI) {
     name: "handoff_update",
     label: "Notebook",
     description:
-      "Replace this project's cross-session handoff: what we are doing, where it stands, what comes next. Call it when the work state meaningfully changes, so a later session can resume.",
+      "Update this project's cross-session handoff: what we are doing, where it stands, what comes next. Call it after agreeing on a plan, after finishing a piece of work, and whenever the work state changes, so a later session can resume. Fields you leave out keep their current value; pass an empty list or string to clear one. goal is required when there is no handoff yet.",
     promptSnippet:
       "handoff_update: record current goal, status and next steps for the next session",
     parameters: Type.Object({
-      goal: Type.String({
-        description: "The overall goal of the current work, one line.",
-      }),
-      status: Type.String({
-        description: "Where things stand now, one or two sentences.",
-      }),
-      next_steps: Type.Array(Type.String(), {
-        description: "Concrete next actions, in order.",
-      }),
+      goal: Type.Optional(
+        Type.String({
+          description: "The overall goal of the current work, one line.",
+        }),
+      ),
+      status: Type.Optional(
+        Type.String({
+          description: "Where things stand now, one or two sentences.",
+        }),
+      ),
+      next_steps: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Concrete next actions, in order, including any unfinished todos. Replaces the list.",
+        }),
+      ),
       blockers: Type.Optional(
         Type.Array(Type.String(), {
-          description: "Open problems or questions.",
+          description: "Open problems or questions. Replaces the list.",
         }),
       ),
       notes: Type.Optional(
@@ -863,29 +870,33 @@ export default function notebook(pi: ExtensionAPI) {
           details: undefined,
         };
       }
+      const prev = readHandoff(scope);
+      const goal = p.goal ?? prev?.goal ?? "";
+      if (!goal.trim())
+        throw new Error("This project has no handoff yet, so goal is required.");
       const secret = findSecret(
         [
-          p.goal,
-          p.status,
-          ...p.next_steps,
+          p.goal ?? "",
+          p.status ?? "",
+          ...(p.next_steps ?? []),
           ...(p.blockers ?? []),
           p.notes ?? "",
         ].join("\n"),
       );
       if (secret) throw new Error(secretError(secret));
-      writeHandoff(scope, {
-        goal: oneLine(p.goal),
-        status: p.status.trim(),
-        nextSteps: p.next_steps,
-        blockers: p.blockers ?? [],
-        notes: p.notes ?? "",
-        todos: formatTodos(readTodos(ctx.sessionManager.getBranch())),
+      const saved: Handoff = {
+        goal: oneLine(goal),
+        status: (p.status ?? prev?.status ?? "").trim(),
+        nextSteps: p.next_steps ?? prev?.nextSteps ?? [],
+        blockers: p.blockers ?? prev?.blockers ?? [],
+        notes: p.notes ?? prev?.notes ?? "",
         updated: new Date().toISOString(),
-      });
+      };
+      writeHandoff(scope, saved);
       markSaved(ctx);
       return {
-        content: text("Handoff updated."),
-        details: { goal: oneLine(p.goal), next: p.next_steps.length },
+        content: text(`Handoff saved:\n\n${formatHandoff(saved)}`),
+        details: { goal: saved.goal, next: saved.nextSteps.length },
       };
     },
 
@@ -902,57 +913,6 @@ export default function notebook(pi: ExtensionAPI) {
       if (!d) return new Text(theme.fg("dim", "skipped"), 0, 0);
       return new Text(
         `${theme.fg("success", "✓ ")}${theme.fg("muted", "handoff")} ${theme.fg("dim", `· ${d.next} next steps`)}`,
-        0,
-        0,
-      );
-    },
-  });
-
-  pi.registerTool({
-    name: "suggest_command",
-    label: "Notebook",
-    description:
-      "Suggest a notebook command to the user through the status line. It does not interrupt or send a message. Use rarely: 'wrap' after finishing meaningful work, 'curate' when the notebook has duplicates or stale entries, 'remember' when the user stated a preference you did not save, 'init' when a project would benefit from a notebook.",
-    promptSnippet:
-      "suggest_command: quietly suggest /nb:wrap, /nb:curate, /nb:remember or /nb:init to the user",
-    parameters: Type.Object({
-      command: StringEnum(["wrap", "curate", "remember", "init"] as const),
-      reason: Type.String({
-        description:
-          "Why, in a few words starting with 'to', for example 'to record the auth decision'.",
-      }),
-    }),
-
-    async execute(_id, p, _signal, _onUpdate, ctx) {
-      if (suggested.has(p.command)) {
-        return {
-          content: text("Already suggested this session. Continue your work."),
-          details: undefined,
-        };
-      }
-      suggested.add(p.command);
-      setHint({ command: `/nb:${p.command}`, reason: oneLine(p.reason) });
-      refreshStatus(ctx);
-      return {
-        content: text("Shown in the status line. Continue your work."),
-        details: { command: `/nb:${p.command}` },
-      };
-    },
-
-    renderCall(args, theme) {
-      return new Text(
-        `${theme.fg("toolTitle", theme.bold("notebook "))}${theme.fg("muted", "suggest")} ${theme.fg("accent", `/nb:${args.command ?? ""}`)}`,
-        0,
-        0,
-      );
-    },
-
-    renderResult(result, _opts, theme) {
-      const d = result.details as { command: string } | undefined;
-      return new Text(
-        d
-          ? `${theme.fg("accent", "▸ ")}${theme.fg("dim", "shown in status line")}`
-          : theme.fg("dim", "already suggested"),
         0,
         0,
       );

@@ -3,6 +3,7 @@ import {
   matchesKey,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { Project, Scope } from "./paths.ts";
 import type { Hint } from "./signals.ts";
@@ -106,15 +107,32 @@ function heading(th: Theme, label: string, meta = ""): string {
   return `  ${th.fg("text", th.bold(label))}${meta ? `  ${th.fg("dim", meta)}` : ""}`;
 }
 
-function entryRows(th: Theme, entries: Entry[], max: number): string[] {
+/** Wrap `body` to the width, continuation lines aligned under its first character. */
+function hang(prefix: string, body: string, width: number): string[] {
+  const pad = visibleWidth(prefix);
+  if (width - pad < 10) return [prefix + body];
+  return wrapTextWithAnsi(body, width - pad).map(
+    (l, i) => (i ? " ".repeat(pad) : prefix) + l,
+  );
+}
+
+function entryRows(
+  th: Theme,
+  entries: Entry[],
+  max: number,
+  width: number,
+): string[] {
   const active = entries
     .filter((e) => e.status === "active")
     .sort((a, b) => b.id - a.id);
   const rows = active
     .slice(0, max)
-    .map(
-      (e) =>
-        `    ${th.fg("accent", ref(e).padEnd(5))} ${th.fg("text", e.title)}  ${th.fg("dim", e.date)}`,
+    .flatMap((e) =>
+      hang(
+        `    ${th.fg("accent", ref(e).padEnd(5))} `,
+        `${th.fg("text", e.title)}  ${th.fg("dim", e.date)}`,
+        width,
+      ),
     );
   if (active.length > max)
     rows.push(`    ${th.fg("dim", `… ${active.length - max} more`)}`);
@@ -174,22 +192,29 @@ export class NotebookView {
         lines.push(`    ${th.fg("dim", "none yet")}`);
       } else {
         const field = (label: string, value: string) =>
-          `    ${th.fg("muted", label.padEnd(8))}${th.fg("text", value)}`;
-        if (h.goal) lines.push(field("goal", h.goal));
-        if (h.status) lines.push(field("status", h.status));
+          hang(
+            `    ${th.fg("muted", label.padEnd(8))}`,
+            th.fg("text", value),
+            width,
+          );
+        if (h.goal) lines.push(...field("goal", h.goal));
+        if (h.status) lines.push(...field("status", h.status));
         h.nextSteps.forEach((s, i) =>
           lines.push(
-            `    ${th.fg("muted", (i === 0 ? "next" : "").padEnd(8))}${th.fg("accent", "›")} ${th.fg("text", s)}`,
+            ...hang(
+              `    ${th.fg("muted", (i === 0 ? "next" : "").padEnd(8))}${th.fg("accent", "›")} `,
+              th.fg("text", s),
+              width,
+            ),
           ),
         );
         h.blockers.forEach((s, i) =>
           lines.push(
-            `    ${th.fg("muted", (i === 0 ? "blocked" : "").padEnd(8))}${th.fg("warning", "!")} ${th.fg("text", s)}`,
-          ),
-        );
-        h.todos.forEach((s, i) =>
-          lines.push(
-            `    ${th.fg("muted", (i === 0 ? "todos" : "").padEnd(8))}${th.fg("dim", s)}`,
+            ...hang(
+              `    ${th.fg("muted", (i === 0 ? "blocked" : "").padEnd(8))}${th.fg("warning", "!")} `,
+              th.fg("text", s),
+              width,
+            ),
           ),
         );
       }
@@ -208,6 +233,7 @@ export class NotebookView {
           th,
           data.projectEntries.filter((e) => e.kind === "decision"),
           6,
+          width,
         ),
         "",
       );
@@ -217,6 +243,7 @@ export class NotebookView {
           th,
           data.projectEntries.filter((e) => e.kind === "lesson"),
           6,
+          width,
         ),
         "",
       );
@@ -225,7 +252,9 @@ export class NotebookView {
         lines.push(
           ...data.conventions
             .slice(0, 6)
-            .map((c) => `    ${th.fg("dim", "•")} ${th.fg("text", c)}`),
+            .flatMap((c) =>
+              hang(`    ${th.fg("dim", "•")} `, th.fg("text", c), width),
+            ),
           "",
         );
       }
@@ -239,11 +268,13 @@ export class NotebookView {
         `${g.l} lessons · ${g.d} decisions · ${data.preferences.length} preferences`,
       ),
     );
-    lines.push(...entryRows(th, data.globalEntries, 6));
+    lines.push(...entryRows(th, data.globalEntries, 6, width));
     lines.push(
       ...data.preferences
         .slice(-4)
-        .map((p) => `    ${th.fg("dim", "•")} ${th.fg("muted", p)}`),
+        .flatMap((p) =>
+          hang(`    ${th.fg("dim", "•")} `, th.fg("muted", p), width),
+        ),
       "",
     );
 

@@ -10,11 +10,10 @@ export interface Signals {
   committed: boolean;
   /** At least two failed tool calls followed by a success. */
   recovered: boolean;
-  todoCompleted: boolean;
 }
 
 export function freshSignals(): Signals {
-  return { committed: false, recovered: false, todoCompleted: false };
+  return { committed: false, recovered: false };
 }
 
 export interface TurnFacts extends Signals {
@@ -36,6 +35,14 @@ export function looksLikePreference(text: string): boolean {
   return PREFERENCE_RE.test(text);
 }
 
+const RESUME_RE =
+  /\b(where (?:did|were|are) we|where we (?:left|ended|stopped)|left off|where things stand|pick (?:it |this )?(?:back )?up|resume|continue|carry on|what'?s next|next steps?|the plan|yesterday|last (?:time|session)|catch me up)\b/i;
+
+/** The prompt asks to resume or report on ongoing work. */
+export function looksLikeResume(text: string): boolean {
+  return RESUME_RE.test(text);
+}
+
 export const COMMIT_RE = /\bgit\b[^\n|;&]*\bcommit\b/;
 
 /**
@@ -50,7 +57,7 @@ export function detectNudge(
 ): NudgeKind | undefined {
   const candidates: [NudgeKind, boolean][] = [
     ["context", f.contextHigh],
-    ["milestone", f.committed || f.todoCompleted],
+    ["milestone", f.committed],
     ["lesson", f.recovered],
     [
       "handoff",
@@ -78,7 +85,7 @@ export function nudgeText(kind: NudgeKind): string {
     context:
       "The context window is filling up and will be compacted later, which drops details. Record any decisions or non-obvious fixes from this session with memory_save, and update the handoff with handoff_update.",
     milestone:
-      "A piece of work was just finished (a commit or a completed todo). If it involved a choice between real alternatives or solved a non-obvious problem, record it with memory_save, and update the handoff with handoff_update. Otherwise ignore this note.",
+      "A piece of work was just committed. If it involved a choice between real alternatives or solved a non-obvious problem, record it with memory_save, and update the handoff with handoff_update. Otherwise ignore this note.",
     lesson:
       "Recent tool calls failed before succeeding. If the cause and fix are non-obvious and likely to recur, record them with memory_save kind lesson. Otherwise ignore this note.",
     handoff:

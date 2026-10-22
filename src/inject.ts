@@ -7,6 +7,7 @@ import {
   readManaged,
   ref,
 } from "./store.ts";
+import { ago } from "./ui.ts";
 
 export interface InjectInput {
   project?: Project;
@@ -17,20 +18,28 @@ export interface InjectInput {
 }
 
 const HEADER = [
-  "Durable memory that persists across sessions. The decision and lesson indexes below list titles only.",
-  "Work with the notebook ONLY through its tools:",
-  '- memory_search: find entries by keywords, read entries in full by ref ("D3 L1"), list all with "*", or read the project handoff with "handoff".',
-  "- memory_save: record a preference, convention, decision or lesson. Save decisions and lessons to the project unless they are about the user's own setup across projects (machines, accounts, shell, installed tools). When unsure, use project.",
-  "- handoff_update: record the current goal, status and next steps of project work. Call it after agreeing on a plan or starting multi-step work, and again when the state changes.",
+  "Durable memory across sessions. Indexes below list titles only; read full entries with memory_search.",
+  "Call handoff_update after agreeing on a plan, after finishing a piece of work, and whenever the work state changes. Record choices and non-obvious fixes with memory_save.",
   "Never read, list, edit or delete notebook files (.pi/notebook, ~/.pi/agent/pi-notebook) with file tools or shell commands. Those calls are blocked.",
-  "To add preferences or conventions, use memory_save rather than editing the pi-notebook section of AGENTS.md.",
+  "Add preferences or conventions with memory_save, not by editing the pi-notebook section of AGENTS.md.",
 ];
 
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-const stamp = (h: Handoff) => h.updated.slice(0, 16).replace("T", " ");
+/** e.g. "2026-10-21 18:46 -04:00" in the machine's time zone. */
+export function localTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const off = -d.getTimezoneOffset();
+  const abs = Math.abs(off);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())} ${off < 0 ? "-" : "+"}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+}
+
+const stamp = (h: Handoff) =>
+  h.updated ? `${localTime(h.updated)}, ${ago(h.updated)} ago` : "unknown";
 
 function handoffPointer(h: Handoff): string[] {
   const lines = [
@@ -40,7 +49,7 @@ function handoffPointer(h: Handoff): string[] {
   if (h.goal) lines.push(`Goal: ${h.goal}`);
   if (h.nextSteps[0]) lines.push(`Next: ${h.nextSteps[0]}`);
   lines.push(
-    'Read the full handoff (status, all next steps, blockers, notes) with memory_search "handoff" before answering about the plan, status or where things stand, and before continuing the work.',
+    'When resuming work or asked about the plan or status, read the full handoff (status, all next steps, blockers, notes) with memory_search "handoff", unless it is already in this conversation.',
     "</handoff>",
   );
   return lines;
@@ -53,7 +62,6 @@ export function formatHandoff(h: Handoff): string {
   if (h.status) parts.push(`Status: ${h.status}`);
   if (h.nextSteps.length) parts.push(`Next steps:\n${list(h.nextSteps)}`);
   if (h.blockers.length) parts.push(`Blockers:\n${list(h.blockers)}`);
-  if (h.todos.length) parts.push(`Open todos:\n${list(h.todos)}`);
   if (h.notes) parts.push(`Notes: ${h.notes}`);
   return parts.join("\n\n");
 }

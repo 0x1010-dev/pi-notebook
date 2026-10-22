@@ -3,13 +3,19 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { FILES_REASON, guardToolCall, MANAGED_WARNING } from "./guard.ts";
+import {
+  FILES_REASON,
+  guardToolCall,
+  MANAGED_WARNING,
+  SHELL_REASON,
+} from "./guard.ts";
 import { appendManaged } from "./store.ts";
 
 const home = "/Users/me";
 const roots = [`${home}/.pi/agent/pi-notebook`];
 const base = { cwd: "/repo", roots, agentsFiles: [], home };
 const BLOCK = { action: "block", reason: FILES_REASON };
+const SHELL_BLOCK = { action: "block", reason: SHELL_REASON };
 const WARN = { action: "warn", reason: MANAGED_WARNING };
 
 test("blocks file tools inside notebooks", () => {
@@ -31,12 +37,12 @@ test("blocks file tools inside notebooks", () => {
 test("blocks shell commands touching notebooks", () => {
   const bash = (command: string) =>
     guardToolCall({ ...base, toolName: "bash", input: { command } });
-  assert.deepEqual(bash("cat .pi/notebook/handoff.md"), BLOCK);
-  assert.deepEqual(bash("rm -rf ~/.pi/agent/pi-notebook/global"), BLOCK);
-  assert.deepEqual(bash(`ls ${home}/.pi/agent/pi-notebook`), BLOCK);
+  assert.deepEqual(bash("cat .pi/notebook/handoff.md"), SHELL_BLOCK);
+  assert.deepEqual(bash("rm -rf ~/.pi/agent/pi-notebook/global"), SHELL_BLOCK);
+  assert.deepEqual(bash(`ls ${home}/.pi/agent/pi-notebook`), SHELL_BLOCK);
   assert.deepEqual(
     bash("sed -i '' x \"/repo/.pi/notebook/lessons/a.md\""),
-    BLOCK,
+    SHELL_BLOCK,
   );
   assert.equal(bash("cd ~/Code/Personal/pi-notebook && npm test"), undefined);
   assert.equal(bash("ls .pi/skills"), undefined);

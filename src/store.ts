@@ -386,8 +386,6 @@ export interface Handoff {
   nextSteps: string[];
   blockers: string[];
   notes: string;
-  /** Written by the todo bridge, not the model. */
-  todos: string[];
   updated: string;
 }
 
@@ -397,7 +395,6 @@ const HANDOFF_SECTIONS: [keyof Handoff, string][] = [
   ["nextSteps", "Next steps"],
   ["blockers", "Blockers"],
   ["notes", "Notes"],
-  ["todos", "Open todos"],
 ];
 
 export function handoffPath(scope: Scope): string {
@@ -414,7 +411,6 @@ export function readHandoff(scope: Scope): Handoff | undefined {
     nextSteps: [],
     blockers: [],
     notes: "",
-    todos: [],
     updated: meta.updated ?? "",
   };
   const parts = body.split(/^## /m).slice(1);
@@ -424,7 +420,7 @@ export function readHandoff(scope: Scope): Handoff | undefined {
     const content = nl < 0 ? "" : part.slice(nl + 1).trim();
     const key = HANDOFF_SECTIONS.find(([, t]) => t === title)?.[0];
     if (!key) continue;
-    if (key === "nextSteps" || key === "blockers" || key === "todos") {
+    if (key === "nextSteps" || key === "blockers") {
       h[key] = content
         .split("\n")
         .map((l) => l.replace(/^\s*-\s*/, "").trim())

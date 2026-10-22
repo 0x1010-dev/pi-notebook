@@ -6,6 +6,8 @@ import { MANAGED_END, MANAGED_START } from "./store.ts";
 export const FILES_REASON =
   'Notebook files are managed by pi-notebook and cannot be read, listed or edited directly. Use memory_search (pass refs like "D3 L1" for full entries, "*" to list all, or "handoff" for the project handoff), memory_save, or handoff_update.';
 
+export const SHELL_REASON = `${FILES_REASON} The entire command was blocked, so rerun any other parts of it without the notebook path.`;
+
 export const MANAGED_WARNING =
   "Note: this change touched the pi-notebook section of AGENTS.md. That section is maintained by the extension; prefer memory_save (kind preference or convention) for additions there. If the change was intentional, carry on.";
 
@@ -94,7 +96,7 @@ export function guardToolCall(g: GuardInput): GuardVerdict | undefined {
       NOTEBOOK_IN_SHELL.test(cmd) ||
       g.roots.some((r) => cmd.includes(r) || cmd.includes(tilde(r)))
     ) {
-      return block;
+      return { action: "block", reason: SHELL_REASON };
     }
   }
   return undefined;

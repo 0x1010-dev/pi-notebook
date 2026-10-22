@@ -5,10 +5,19 @@ import {
   detectNudge,
   freshSignals,
   looksLikePreference,
+  looksLikeResume,
   type NudgeKind,
   type TurnFacts,
 } from "./signals.ts";
-import { readTodos } from "./todos.ts";
+
+test("resume detection", () => {
+  assert.ok(looksLikeResume("Where did we end up yesterday?"));
+  assert.ok(looksLikeResume("What's the plan for today?"));
+  assert.ok(looksLikeResume("let's continue"));
+  assert.ok(looksLikeResume("catch me up"));
+  assert.ok(!looksLikeResume("fix the failing test"));
+  assert.ok(!looksLikeResume("run git status"));
+});
 
 test("preference detection", () => {
   assert.ok(looksLikePreference("From now on use pnpm"));
@@ -43,7 +52,6 @@ test("nudge priority, dedupe and cooldown", () => {
   assert.equal(at({}), undefined);
   assert.equal(at({ recovered: true }), "lesson");
   assert.equal(at({ recovered: true, committed: true }), "milestone");
-  assert.equal(at({ todoCompleted: true }), "milestone");
   assert.equal(at({ handoffMissing: true, turnsSinceSave: 5 }), undefined);
   assert.equal(at({ handoffMissing: true, turnsSinceSave: 6 }), "handoff");
   assert.equal(at({ turnsSinceSave: 30 }), "checkpoint");
@@ -56,39 +64,4 @@ test("nudge priority, dedupe and cooldown", () => {
     at({ committed: true, recovered: true }, new Set(["milestone"])),
     "lesson",
   );
-});
-
-test("todo bridge prefers state entries", () => {
-  const branch = [
-    {
-      type: "message",
-      message: {
-        role: "toolResult",
-        toolName: "todo",
-        details: {
-          tasks: [{ id: 1, subject: "old", status: "pending" }],
-          nextId: 2,
-        },
-      },
-    },
-    {
-      type: "custom",
-      customType: "rpiv-todo-state",
-      data: {
-        tasks: [
-          { id: 1, subject: "a", status: "completed" },
-          { id: 2, subject: "b", status: "in_progress" },
-          { id: 3, subject: "c", status: "deleted" },
-        ],
-        nextId: 4,
-      },
-    },
-  ];
-  const snap = readTodos(branch);
-  assert.equal(snap.completed, 1);
-  assert.deepEqual(
-    snap.open.map((t) => t.subject),
-    ["b"],
-  );
-  assert.deepEqual(readTodos([]).open, []);
 });

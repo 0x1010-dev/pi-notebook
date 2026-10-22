@@ -124,7 +124,6 @@ test("handoff round-trips", () => {
     nextSteps: ["write docs", "tag release"],
     blockers: [],
     notes: "",
-    todos: ["[~] docs"],
     updated: "2026-10-21T10:00:00.000Z",
   };
   writeHandoff(s, h);
