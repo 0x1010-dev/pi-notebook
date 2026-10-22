@@ -23,6 +23,7 @@ Projects are git roots. A project gets a notebook only when you run `/nb:init` o
 - `memory_save`: save a preference, convention, decision or lesson. Preferences, conventions and global entries ask you to confirm. Saves are rejected when they look like they contain secrets, when decisions or lessons lack their sections (Context/Decision/Consequences, Symptom/Cause/Fix), or when a similar entry already exists.
 - `memory_search`: keyword search, full entries by ref (`"D3 ~L1"`), `"*"` to list everything (handoff first), or `"handoff"` for the full project handoff.
 - `handoff_update`: update the project handoff. Fields left out keep their current value; the result echoes the saved handoff.
+- `memory_retire`: retire decisions or lessons that no longer apply and have no replacement. You confirm. Retired entries leave the index, recall and duplicate checks but stay on file and in search results, marked with the reason. To remove one for good, delete its file yourself.
 
 The model cannot read or edit notebook files directly; those tool calls are blocked (for shell commands, the whole command is blocked and the model is told to rerun the other parts). Changes to the managed section of `AGENTS.md` are allowed but flagged.
 
@@ -51,6 +52,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 | You say "always use pnpm"                                            | `memory_save` kind `preference`                  | You confirm; it lands in `~/.pi/agent/AGENTS.md`.                         |
 | You say "this repo keeps ARCHITECTURE.md current"                    | `memory_save` kind `convention`                  | You confirm; it lands in the project `AGENTS.md`.                         |
 | An entry is outdated or duplicated                                   | `memory_save` with `supersedes: ["D3"]`          | The new entry replaces the old one, which stays on file as superseded.    |
+| An entry no longer applies and nothing replaces it                   | `memory_retire` with refs and a reason           | You confirm; it leaves the index and stays on file as retired.            |
 | The model tries `cat .pi/notebook/handoff.md`                        | Blocked by the guard                             | It is told to use `memory_search` instead.                                |
 
 ### Reminders and wrapping up
@@ -69,6 +71,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 | `/nb:init [repo\|local]` | Create a notebook for this project                         |
 | `/nb:remember <text>`    | Save a preference or convention without the model          |
 | `/nb:prefs`              | Edit preferences or conventions by hand                    |
+| `/nb:forget <refs> [reason]` | Retire decisions or lessons, e.g. `/nb:forget D3 L1 moved to docker` |
 | `/nb:wrap`               | Ask the model to record decisions, lessons and the handoff |
 | `/nb:curate`             | Ask the model to merge duplicates and retire stale entries |
 

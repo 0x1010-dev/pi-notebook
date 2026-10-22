@@ -20,7 +20,7 @@ export function curatePrompt(skillDirs: string[]): string {
     "Curate the pi-notebook using only the notebook tools.",
     '1. Call memory_search with query "*" to list every entry, then read related entries in full by passing their refs (for example "D1 D4").',
     "2. Merge duplicates: call memory_save with one clear combined entry and set supersedes to the refs it replaces.",
-    "3. For entries that are no longer true, save a corrected entry that supersedes them.",
+    "3. For entries that are no longer true, save a corrected entry that supersedes them. If nothing replaces them, retire them with memory_retire.",
     `4. If three or more lessons describe the same procedure, propose a skill (in ${skillDirs.join(" or ")}) and ask me before writing it.`,
     "5. If a project entry turns out to apply beyond this project (it is about my own setup, or the same lesson already exists elsewhere), promote it: memory_save with scope global and supersedes set to its project ref. I will be asked to confirm.",
     "6. Do not try to edit or delete notebook files; those calls are blocked.",

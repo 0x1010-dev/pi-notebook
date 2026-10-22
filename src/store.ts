@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 import type { Scope, ScopeKind } from "./paths.ts";
 
 export type EntryKind = "decision" | "lesson";
-export type EntryStatus = "active" | "superseded";
+export type EntryStatus = "active" | "superseded" | "retired";
 
 export interface Entry {
   scope: ScopeKind;
@@ -20,6 +20,7 @@ export interface Entry {
   date: string;
   supersedes?: number[];
   supersededBy?: string;
+  retiredReason?: string;
   body: string;
   path: string;
 }
@@ -109,6 +110,7 @@ function writeEntry(e: Entry): void {
         date: e.date,
         supersedes: e.supersedes?.join(", "),
         superseded_by: e.supersededBy,
+        retired_reason: e.retiredReason,
       },
       e.body,
     ),
@@ -129,7 +131,10 @@ export function listEntries(scope: Scope, kind: EntryKind): Entry[] {
       kind,
       id: Number(meta.id ?? m[1]),
       title: meta.title || name,
-      status: meta.status === "superseded" ? "superseded" : "active",
+      status:
+        meta.status === "superseded" || meta.status === "retired"
+          ? meta.status
+          : "active",
       date: meta.date ?? "",
       supersedes: meta.supersedes
         ? meta.supersedes
@@ -142,6 +147,7 @@ export function listEntries(scope: Scope, kind: EntryKind): Entry[] {
           ? ref({ scope: scope.kind, kind, id: Number(meta.superseded_by) })
           : meta.superseded_by
         : undefined,
+      retiredReason: meta.retired_reason || undefined,
       body,
       path,
     });
@@ -200,7 +206,7 @@ export function saveEntry(
 }
 
 /** Mark an entry superseded by an entry elsewhere, e.g. a project lesson promoted to global. */
-export function retireEntry(
+export function supersedeEntry(
   scope: Scope,
   kind: EntryKind,
   id: number,
@@ -209,6 +215,18 @@ export function retireEntry(
   const e = getEntry(scope, kind, id);
   if (!e) throw new Error(`${ref({ scope: scope.kind, kind, id })} not found`);
   writeEntry({ ...e, status: "superseded", supersededBy: byRef });
+}
+
+/** Take an entry out of use without a replacement. The file stays. */
+export function retireEntry(
+  scope: Scope,
+  kind: EntryKind,
+  id: number,
+  reason: string,
+): void {
+  const e = getEntry(scope, kind, id);
+  if (!e) throw new Error(`${ref({ scope: scope.kind, kind, id })} not found`);
+  writeEntry({ ...e, status: "retired", retiredReason: oneLine(reason) });
 }
 
 export interface SearchHit {
@@ -259,7 +277,7 @@ export function searchEntries(
         if (body.includes(t)) score += 1;
       }
       if (score === 0) continue;
-      if (entry.status === "superseded") score *= 0.3;
+      if (entry.status !== "active") score *= 0.3;
       hits.push({
         entry,
         score,

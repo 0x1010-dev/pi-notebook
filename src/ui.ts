@@ -220,12 +220,15 @@ export class NotebookView {
       }
       lines.push("");
       const c = counts(data.projectEntries);
-      const superseded = data.projectEntries.length - c.d - c.l;
+      const inactive = (s: string) =>
+        data.projectEntries.filter((e) => e.status === s).length;
+      const superseded = inactive("superseded");
+      const retired = inactive("retired");
       lines.push(
         heading(
           th,
           "Decisions",
-          `${c.d} active${superseded ? ` · ${superseded} superseded` : ""}`,
+          `${c.d} active${superseded ? ` · ${superseded} superseded` : ""}${retired ? ` · ${retired} retired` : ""}`,
         ),
       );
       lines.push(

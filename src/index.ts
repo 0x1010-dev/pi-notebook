@@ -53,6 +53,7 @@ import {
   retireEntry,
   saveEntry,
   searchEntries,
+  supersedeEntry,
   writeHandoff,
 } from "./store.ts";
 import { NotebookView, statusLine, type ViewData } from "./ui.ts";
@@ -243,6 +244,61 @@ export default function notebook(pi: ExtensionAPI) {
           globalLimit: cfg.globalIndexLimit,
         }),
       ),
+    };
+  }
+
+  /** Confirm with the user, then retire the active entries among `words`. */
+  async function retireRefs(
+    ctx: ExtensionContext,
+    words: string[],
+    reason: string,
+  ): Promise<{ retired: string[]; declined: boolean; message: string }> {
+    const { scope, global } = locate(ctx.cwd);
+    const found: { scope: Scope; entry: Entry }[] = [];
+    const missing: string[] = [];
+    const inactive: string[] = [];
+    for (const w of words) {
+      const r = parseRef(w);
+      const s = r?.global ? global : scope;
+      const e = r && s ? getEntry(s, r.kind, r.id) : undefined;
+      if (!e || !s) missing.push(w);
+      else if (e.status !== "active") inactive.push(`${ref(e)} (${e.status})`);
+      else if (!found.some((f) => f.entry.path === e.path))
+        found.push({ scope: s, entry: e });
+    }
+    const skipped = [
+      ...(missing.length ? [`Not found: ${missing.join(", ")}.`] : []),
+      ...(inactive.length
+        ? [`Already inactive: ${inactive.join(", ")}.`]
+        : []),
+    ];
+    if (found.length === 0)
+      return {
+        retired: [],
+        declined: false,
+        message: skipped.join(" ") || "Nothing to retire.",
+      };
+    if (ctx.hasUI) {
+      const ok = await ctx.ui.confirm(
+        `◆ Retire ${found.length === 1 ? "this entry" : `${found.length} entries`}?`,
+        `${found.map(({ entry }) => `${ref(entry)} ${entry.title}`).join("\n")}${reason ? `\n\nReason: ${oneLine(reason)}` : ""}`,
+      );
+      if (!ok)
+        return {
+          retired: [],
+          declined: true,
+          message: "The user declined. Do not retry.",
+        };
+    }
+    for (const { scope: s, entry } of found)
+      retireEntry(s, entry.kind, entry.id, reason);
+    invalidate();
+    refreshStatus(ctx);
+    const retired = found.map(({ entry }) => ref(entry));
+    return {
+      retired,
+      declined: false,
+      message: [`Retired ${retired.join(", ")}.`, ...skipped].join(" "),
     };
   }
 
@@ -661,7 +717,7 @@ export default function notebook(pi: ExtensionAPI) {
           );
       }
       const entry = saveEntry(scope, p.kind, p.title, body, supersedes);
-      for (const id of promoted) retireEntry(nb!, p.kind, id, ref(entry));
+      for (const id of promoted) supersedeEntry(nb!, p.kind, id, ref(entry));
       markSaved(ctx);
       const replaced =
         supersedes.length || promoted.length
@@ -732,8 +788,15 @@ export default function notebook(pi: ExtensionAPI) {
       const { scope, global } = locate(ctx.cwd);
       const scopes = scope ? [scope, global] : [global];
       const label = (e: Entry) => `${ref(e)} ${e.title}`;
-      const head = (e: Entry) =>
-        `${ref(e)} [${e.status}${e.supersededBy ? ` by ${e.supersededBy}` : ""}] ${e.title} (${e.date})`;
+      const head = (e: Entry) => {
+        const state =
+          e.status === "superseded" && e.supersededBy
+            ? `superseded by ${e.supersededBy}`
+            : e.status === "retired" && e.retiredReason
+              ? `retired: ${e.retiredReason}`
+              : e.status;
+        return `${ref(e)} [${state}] ${e.title} (${e.date})`;
+      };
       const h = scope ? readHandoff(scope) : undefined;
       const handoffRefs = h ? [`handoff ${h.goal}`] : [];
       const allWords = p.query
@@ -919,6 +982,64 @@ export default function notebook(pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "memory_retire",
+    label: "Notebook",
+    description:
+      "Retire notebook decisions or lessons that are no longer true or useful and have nothing to replace them. Retired entries leave the index but stay searchable. To replace an entry with a corrected one, use memory_save with supersedes instead. The user confirms each retirement.",
+    promptSnippet:
+      "memory_retire: retire outdated notebook decisions or lessons (user confirms)",
+    parameters: Type.Object({
+      refs: Type.Array(Type.String(), {
+        description: 'Refs of the entries to retire, for example ["D3", "~L1"].',
+      }),
+      reason: Type.String({
+        description: "Why they no longer apply, one line.",
+      }),
+    }),
+    prepareArguments: (args) => {
+      const a = { ...(args as Record<string, unknown>) };
+      if (typeof a.refs === "string")
+        a.refs = a.refs.split(/[\s,]+/).filter(Boolean);
+      return a as never;
+    },
+    executionMode: "sequential",
+
+    async execute(_id, p, _signal, _onUpdate, ctx) {
+      if (!ctx.hasUI)
+        throw new Error(
+          "Retiring entries needs user confirmation, which is unavailable in this mode.",
+        );
+      const r = await retireRefs(ctx, p.refs, p.reason);
+      return {
+        content: text(r.message),
+        details: { retired: r.retired, declined: r.declined },
+      };
+    },
+
+    renderCall(args, theme) {
+      return new Text(
+        `${theme.fg("toolTitle", theme.bold("notebook "))}${theme.fg("muted", "retire")} ${theme.fg("accent", (args.refs ?? []).join(" "))}`,
+        0,
+        0,
+      );
+    },
+
+    renderResult(result, _opts, theme) {
+      const d = result.details as
+        | { retired: string[]; declined: boolean }
+        | undefined;
+      if (d?.declined) return new Text(theme.fg("warning", "✗ declined"), 0, 0);
+      if (!d?.retired.length)
+        return new Text(theme.fg("dim", "nothing retired"), 0, 0);
+      return new Text(
+        `${theme.fg("success", "✓ ")}${theme.fg("muted", "retired")} ${theme.fg("accent", d.retired.join(" "))}`,
+        0,
+        0,
+      );
+    },
+  });
+
   // Commands
 
   pi.registerCommand("nb", {
@@ -1071,6 +1192,39 @@ export default function notebook(pi: ExtensionAPI) {
         "info",
       );
       refreshStatus(ctx);
+    },
+  });
+
+  pi.registerCommand("nb:forget", {
+    description:
+      "Retire notebook decisions or lessons, e.g. /nb:forget D3 L1 no longer true",
+    getArgumentCompletions: (prefix) => {
+      if (/\s/.test(prefix.trimStart())) return [];
+      const { scope, global } = locate(process.cwd());
+      const want = prefix.trim().toLowerCase();
+      return [scope, global]
+        .filter((s): s is Scope => !!s)
+        .flatMap((s) => listAll(s))
+        .filter(
+          (e) => e.status === "active" && ref(e).toLowerCase().startsWith(want),
+        )
+        .map((e) => ({ value: ref(e), label: `${ref(e)} ${e.title}` }));
+    },
+    handler: async (args, ctx) => {
+      const words = args.trim().split(/\s+/).filter(Boolean);
+      const n = words.findIndex((w) => !parseRef(w));
+      const refs = n < 0 ? words : words.slice(0, n);
+      if (refs.length === 0) {
+        ctx.ui.notify(
+          "Usage: /nb:forget <refs> [reason], e.g. /nb:forget D3 no longer true",
+          "warning",
+        );
+        return;
+      }
+      const reason = n < 0 ? "" : words.slice(n).join(" ");
+      const r = await retireRefs(ctx, refs, reason);
+      if (!r.declined)
+        ctx.ui.notify(`◆ ${r.message}`, r.retired.length ? "info" : "warning");
     },
   });
 

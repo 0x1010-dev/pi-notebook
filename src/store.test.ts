@@ -18,6 +18,7 @@ import {
   retireEntry,
   saveEntry,
   searchEntries,
+  supersedeEntry,
   writeHandoff,
 } from "./store.ts";
 
@@ -47,14 +48,17 @@ test("saveEntry numbers entries and supersedes", () => {
   assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), "handoff.md\n");
 });
 
-test("retireEntry promotes across scopes and old numeric refs still parse", () => {
+test("supersedeEntry promotes across scopes and old numeric refs still parse", () => {
   const project = scope();
   const global = scope("global");
   const p = saveEntry(project, "lesson", "Tokio broadcast for fan-out", "x");
   const g = saveEntry(global, "lesson", "Tokio broadcast for fan-out", "x");
-  retireEntry(project, "lesson", p.id, ref(g));
+  supersedeEntry(project, "lesson", p.id, ref(g));
   assert.equal(listEntries(project, "lesson")[0].supersededBy, "~L1");
-  assert.throws(() => retireEntry(project, "lesson", 9, "~L1"), /L9 not found/);
+  assert.throws(
+    () => supersedeEntry(project, "lesson", 9, "~L1"),
+    /L9 not found/,
+  );
 
   writeFileSync(
     p.path,
@@ -66,6 +70,18 @@ test("retireEntry promotes across scopes and old numeric refs still parse", () =
 test("saveEntry rejects unknown supersedes", () => {
   const s = scope();
   assert.throws(() => saveEntry(s, "lesson", "x", "y", [9]), /L9 not found/);
+});
+
+test("retireEntry keeps the file but drops it from recall and duplicates", () => {
+  const s = scope();
+  const e = saveEntry(s, "lesson", "Brew postgres needs restart", "x");
+  retireEntry(s, "lesson", e.id, "moved to\ndocker");
+  const [r] = listEntries(s, "lesson");
+  assert.equal(r.status, "retired");
+  assert.equal(r.retiredReason, "moved to docker");
+  assert.equal(searchEntries([s], "postgres restart").length, 1);
+  assert.deepEqual(recall([s], "brew postgres restart", 3), []);
+  assert.equal(findSimilar(s, "lesson", "Brew postgres needs restart"), undefined);
 });
 
 test("refs round-trip", () => {
