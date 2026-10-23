@@ -19,7 +19,7 @@ export interface InjectInput {
 
 const HEADER = [
   "Durable memory across sessions. Indexes below list titles only; read full entries with memory_search.",
-  "Call handoff_update after agreeing on a plan, after finishing a piece of work, and whenever the work state changes. Record choices and non-obvious fixes with memory_save.",
+  "Call handoff_update after agreeing on a plan, after finishing a piece of work, and whenever the work state changes. Record choices, non-obvious fixes and how the code works with memory_save.",
   "Never read, list, edit or delete notebook files (.pi/notebook, ~/.pi/agent/pi-notebook) with file tools or shell commands. Those calls are blocked.",
   "Add preferences or conventions with memory_save, not by editing the pi-notebook section of AGENTS.md.",
 ];
@@ -118,6 +118,13 @@ export function buildSection(input: InjectInput): string {
         "Project decisions:",
         entries.filter((e) => e.kind === "decision"),
         budget * 0.6,
+      ),
+    );
+    push(
+      indexBlock(
+        "Project notes (how the code works):",
+        entries.filter((e) => e.kind === "note"),
+        budget * 0.5,
       ),
     );
     push(

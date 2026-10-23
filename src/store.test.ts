@@ -93,6 +93,20 @@ test("refs round-trip", () => {
     id: 12,
   });
   assert.equal(parseRef("X1"), undefined);
+  assert.deepEqual(parseRef("n2"), { global: false, kind: "note", id: 2 });
+});
+
+test("notes keep files and commit", () => {
+  const s = scope();
+  initScope(s);
+  const n = saveEntry(s, "note", "auth: session cookies", "Middleware in src/auth", [], {
+    files: ["src/auth", "src/server.ts"],
+    commit: "a1b2c3d",
+  });
+  assert.equal(ref(n), "N1");
+  const [r] = listEntries(s, "note");
+  assert.deepEqual(r.files, ["src/auth", "src/server.ts"]);
+  assert.equal(r.commit, "a1b2c3d");
 });
 
 test("search ranks title matches and demotes superseded", () => {

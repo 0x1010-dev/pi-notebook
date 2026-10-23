@@ -29,6 +29,7 @@ export function secretError(kind: string): string {
 const SECTIONS: Record<EntryKind, string[]> = {
   decision: ["Context", "Decision", "Consequences"],
   lesson: ["Symptom", "Cause", "Fix"],
+  note: [],
 };
 
 const has = (body: string, label: string) =>

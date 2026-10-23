@@ -5,10 +5,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { Type } from "typebox";
 import { loadConfig } from "./config.ts";
 import { guardToolCall } from "./guard.ts";
+import { headCommit, staleness } from "./git.ts";
 import { buildSection, estimateTokens, formatHandoff } from "./inject.ts";
 import {
   agentDir,
@@ -21,7 +22,7 @@ import {
   type Scope,
   type StorageMode,
 } from "./paths.ts";
-import { curatePrompt, wrapPrompt } from "./prompts.ts";
+import { curatePrompt, learnPrompt, wrapPrompt } from "./prompts.ts";
 import {
   COMMIT_RE,
   detectNudge,
@@ -224,6 +225,16 @@ export default function notebook(pi: ExtensionAPI) {
     return { cancelled: true };
   }
 
+  /** Files line and staleness warning for notes; empty for other kinds. */
+  function noteLines(cwd: string, e: Entry): string[] {
+    if (e.kind !== "note") return [];
+    const lines = e.files?.length ? [`Files: ${e.files.join(", ")}`] : [];
+    const root = findProject(cwd)?.root;
+    const warn = root && e.commit ? staleness(root, e.commit, e.files) : undefined;
+    if (warn) lines.push(warn);
+    return lines;
+  }
+
   function viewData(ctx: ExtensionContext): ViewData {
     const { project, scope, global } = locate(ctx.cwd);
     return {
@@ -410,7 +421,13 @@ export default function notebook(pi: ExtensionAPI) {
       const clip = (b: string) => (b.length > 600 ? `${b.slice(0, 600)}…` : b);
       notes.push(
         `[pi-notebook] Possibly relevant notebook entries. Use them if they apply, ignore them otherwise.\n\n${hits
-          .map((e) => `${ref(e)} ${e.title}\n${clip(e.body)}`)
+          .map((e) =>
+            [
+              `${ref(e)} ${e.title}`,
+              ...noteLines(ctx.cwd, e),
+              clip(e.body),
+            ].join("\n"),
+          )
           .join("\n\n")}`,
       );
     }
@@ -556,29 +573,33 @@ export default function notebook(pi: ExtensionAPI) {
       "- convention: a rule for this repository.",
       "- decision: a choice made between real alternatives. Body: Context, Decision, Consequences.",
       "- lesson: a non-obvious problem and its fix. Body: Symptom, Cause, Fix.",
+      "- note: how this project's code works (architecture, module layout, recurring patterns), only what would save a future session from reading several files. Title as 'area: summary', for example 'auth: session cookies, middleware in src/auth'. Set files to the paths it describes. Project only.",
       "Do not save trivia, temporary state, or anything already in the notebook index.",
       "Preferences and conventions require user confirmation. If declined, do not retry.",
     ].join("\n"),
     promptSnippet:
-      "memory_save: record a preference, convention, decision or lesson in the notebook",
+      "memory_save: record a preference, convention, decision, lesson or code note in the notebook",
     parameters: Type.Object({
       kind: StringEnum([
         "preference",
         "convention",
         "decision",
         "lesson",
+        "note",
       ] as const),
       title: Type.String({
         description:
           "One short line. For preferences and conventions, the full rule.",
       }),
       body: Type.Optional(
-        Type.String({ description: "Details for decisions and lessons." }),
+        Type.String({
+          description: "Details for decisions, lessons and notes.",
+        }),
       ),
       scope: Type.Optional(
         StringEnum(["project", "global"] as const, {
           description:
-            "Decisions and lessons only. Default and usual choice: project. Use 'global' only for facts about the user's own setup that matter across projects (machines, accounts, shell, installed tools, local services), for example 'brew postgres needs a restart after config changes'. Anything learned while working on a project stays in the project, including general language or library knowledge. When unsure, use project.",
+            "Decisions and lessons only (notes are always project). Default and usual choice: project. Use 'global' only for facts about the user's own setup that matter across projects (machines, accounts, shell, installed tools, local services), for example 'brew postgres needs a restart after config changes'. Anything learned while working on a project stays in the project, including general language or library knowledge. When unsure, use project.",
         }),
       ),
       supersedes: Type.Optional(
@@ -593,11 +614,19 @@ export default function notebook(pi: ExtensionAPI) {
             "Save even though a similar entry exists. Only after checking it is genuinely different.",
         }),
       ),
+      files: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Notes only: repo-relative files or directories the note describes, used to flag the note when they change.",
+        }),
+      ),
     }),
     prepareArguments: (args) => {
       const a = { ...(args as Record<string, unknown>) };
       if (typeof a.supersedes === "string")
         a.supersedes = a.supersedes.split(/[\s,]+/).filter(Boolean);
+      if (typeof a.files === "string")
+        a.files = a.files.split(/[\s,]+/).filter(Boolean);
       return a as never;
     },
     executionMode: "sequential",
@@ -653,10 +682,19 @@ export default function notebook(pi: ExtensionAPI) {
 
       const shapeError = checkStructure(p.kind, body);
       if (shapeError) throw new Error(shapeError);
+      const isNote = p.kind === "note";
+      if (isNote && !project)
+        throw new Error(
+          "Notes describe a project's code, and this is not inside a project.",
+        );
+      if (isNote && p.scope === "global")
+        throw new Error(
+          "Notes are project-only. Save facts about the user's own setup as a global lesson.",
+        );
 
       let scope: Scope = global;
       if (p.scope !== "global" && project) {
-        const r = await resolveProjectScope(ctx, project, true);
+        const r = await resolveProjectScope(ctx, project, !isNote);
         if ("cancelled" in r)
           return declined(
             "The user chose not to save this in a project notebook. Do not retry.",
@@ -716,7 +754,24 @@ export default function notebook(pi: ExtensionAPI) {
             "The user declined. Do not retry or rephrase this save.",
           );
       }
-      const entry = saveEntry(scope, p.kind, p.title, body, supersedes);
+      const entry = saveEntry(
+        scope,
+        p.kind,
+        p.title,
+        body,
+        supersedes,
+        isNote && project
+          ? {
+              files: (p.files ?? [])
+                .map((f) =>
+                  isAbsolute(f) ? relative(project.root, f) : f.trim(),
+                )
+                .map((f) => f.replace(/^\.\//, ""))
+                .filter(Boolean),
+              commit: headCommit(project.root),
+            }
+          : {},
+      );
       for (const id of promoted) supersedeEntry(nb!, p.kind, id, ref(entry));
       markSaved(ctx);
       const replaced =
@@ -772,9 +827,9 @@ export default function notebook(pi: ExtensionAPI) {
     name: "memory_search",
     label: "Notebook",
     description:
-      'Search notebook decisions and lessons (project and global), or read the project handoff. Pass keywords to search, one or more refs ("D3 ~L1") to read entries in full, "*" to list every entry, or "handoff" to read where project work stands.',
+      'Search notebook decisions, lessons and notes (project and global), or read the project handoff. Pass keywords to search, one or more refs ("D3 ~L1 N2") to read entries in full, "*" to list every entry, or "handoff" to read where project work stands. Notes read in full say when their code changed since they were saved.',
     promptSnippet:
-      "memory_search: search, list, or read notebook decisions, lessons and the project handoff",
+      "memory_search: search, list, or read notebook decisions, lessons, notes and the project handoff",
     parameters: Type.Object({
       query: Type.String({
         description: 'Keywords, refs like "D3 L1", or "*"',
@@ -842,7 +897,9 @@ export default function notebook(pi: ExtensionAPI) {
           if (e) found.push(e);
           else missing.push(words[i]);
         });
-        const parts = found.map((e) => `${head(e)}\n\n${e.body}`);
+        const parts = found.map((e) =>
+          [head(e), ...noteLines(ctx.cwd, e), "", e.body].join("\n"),
+        );
         if (missing.length) parts.push(`Not found: ${missing.join(", ")}`);
         return reply(parts.join("\n\n---\n\n"), found.map(label));
       }
@@ -986,9 +1043,9 @@ export default function notebook(pi: ExtensionAPI) {
     name: "memory_retire",
     label: "Notebook",
     description:
-      "Retire notebook decisions or lessons that are no longer true or useful and have nothing to replace them. Retired entries leave the index but stay searchable. To replace an entry with a corrected one, use memory_save with supersedes instead. The user confirms each retirement.",
+      "Retire notebook decisions, lessons or notes that are no longer true or useful and have nothing to replace them. Retired entries leave the index but stay searchable. To replace an entry with a corrected one, use memory_save with supersedes instead. The user confirms each retirement.",
     promptSnippet:
-      "memory_retire: retire outdated notebook decisions or lessons (user confirms)",
+      "memory_retire: retire outdated notebook decisions, lessons or notes (user confirms)",
     parameters: Type.Object({
       refs: Type.Array(Type.String(), {
         description: 'Refs of the entries to retire, for example ["D3", "~L1"].',
@@ -1197,7 +1254,7 @@ export default function notebook(pi: ExtensionAPI) {
 
   pi.registerCommand("nb:forget", {
     description:
-      "Retire notebook decisions or lessons, e.g. /nb:forget D3 L1 no longer true",
+      "Retire notebook decisions, lessons or notes, e.g. /nb:forget D3 L1 no longer true",
     getArgumentCompletions: (prefix) => {
       if (/\s/.test(prefix.trimStart())) return [];
       const { scope, global } = locate(process.cwd());
@@ -1228,9 +1285,21 @@ export default function notebook(pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("nb:learn", {
+    description:
+      "Ask the model to study this repo and record notes and conventions, e.g. /nb:learn or /nb:learn error handling",
+    handler: async (args, ctx) => {
+      if (!findProject(ctx.cwd)) {
+        ctx.ui.notify("Not inside a git repository.", "warning");
+        return;
+      }
+      sendOwnPrompt(ctx, learnPrompt(args.trim()));
+    },
+  });
+
   pi.registerCommand("nb:wrap", {
     description:
-      "Ask the model to record decisions, lessons and the handoff from this session",
+      "Ask the model to record decisions, lessons, notes and the handoff from this session",
     handler: async (_args, ctx) => {
       const { scope } = locate(ctx.cwd);
       sendOwnPrompt(ctx, wrapPrompt(!!scope));
@@ -1239,7 +1308,7 @@ export default function notebook(pi: ExtensionAPI) {
 
   pi.registerCommand("nb:curate", {
     description:
-      "Ask the model to merge duplicates and retire stale notebook entries",
+      "Ask the model to merge duplicates, re-check outdated notes and retire stale notebook entries",
     handler: async (_args, ctx) => {
       const { project, scope, global } = locate(ctx.cwd);
       const scopes = [scope, global].filter((s): s is Scope => !!s);

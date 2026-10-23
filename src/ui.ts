@@ -30,17 +30,19 @@ export interface StatusInfo {
   hint?: Hint;
 }
 
-function counts(entries: Entry[]): { d: number; l: number } {
+function counts(entries: Entry[]): { d: number; l: number; n: number } {
   const active = entries.filter((e) => e.status === "active");
   return {
     d: active.filter((e) => e.kind === "decision").length,
     l: active.filter((e) => e.kind === "lesson").length,
+    n: active.filter((e) => e.kind === "note").length,
   };
 }
 
 function summary(th: Theme, entries: Entry[]): string {
   const c = counts(entries);
-  return `${th.fg("text", `${c.d}d`)} ${th.fg("text", `${c.l}l`)}`;
+  const notes = c.n ? ` ${th.fg("text", `${c.n}n`)}` : "";
+  return `${th.fg("text", `${c.d}d`)} ${th.fg("text", `${c.l}l`)}${notes}`;
 }
 
 /** Footer status, e.g. `◆ NB · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work` */
@@ -248,6 +250,18 @@ export class NotebookView {
           6,
           width,
         ),
+        "",
+      );
+      lines.push(heading(th, "Notes", `${c.n} active`));
+      lines.push(
+        ...(c.n
+          ? entryRows(
+              th,
+              data.projectEntries.filter((e) => e.kind === "note"),
+              6,
+              width,
+            )
+          : [`    ${th.fg("dim", "none yet, try")} ${th.fg("accent", "/nb:learn")}`]),
         "",
       );
       if (data.conventions.length) {

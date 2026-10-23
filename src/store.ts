@@ -8,7 +8,7 @@ import {
 import { dirname, join } from "node:path";
 import type { Scope, ScopeKind } from "./paths.ts";
 
-export type EntryKind = "decision" | "lesson";
+export type EntryKind = "decision" | "lesson" | "note";
 export type EntryStatus = "active" | "superseded" | "retired";
 
 export interface Entry {
@@ -21,6 +21,10 @@ export interface Entry {
   supersedes?: number[];
   supersededBy?: string;
   retiredReason?: string;
+  /** Notes only: repo paths the note describes. */
+  files?: string[];
+  /** Notes only: HEAD when the note was saved. */
+  commit?: string;
   body: string;
   path: string;
 }
@@ -28,8 +32,13 @@ export interface Entry {
 const DIRS: Record<EntryKind, string> = {
   decision: "decisions",
   lesson: "lessons",
+  note: "notes",
 };
-const PREFIX: Record<EntryKind, string> = { decision: "D", lesson: "L" };
+const PREFIX: Record<EntryKind, string> = {
+  decision: "D",
+  lesson: "L",
+  note: "N",
+};
 const FILE_RE = /^(\d+)-.*\.md$/;
 
 export function ref(e: Pick<Entry, "scope" | "kind" | "id">): string {
@@ -39,11 +48,12 @@ export function ref(e: Pick<Entry, "scope" | "kind" | "id">): string {
 export function parseRef(
   text: string,
 ): { global: boolean; kind: EntryKind; id: number } | undefined {
-  const m = /^(~?)([DL])(\d+)$/i.exec(text.trim());
+  const m = /^(~?)([DLN])(\d+)$/i.exec(text.trim());
   if (!m) return undefined;
+  const letter = m[2].toUpperCase();
   return {
     global: m[1] === "~",
-    kind: m[2].toUpperCase() === "D" ? "decision" : "lesson",
+    kind: letter === "D" ? "decision" : letter === "L" ? "lesson" : "note",
     id: Number(m[3]),
   };
 }
@@ -111,6 +121,8 @@ function writeEntry(e: Entry): void {
         supersedes: e.supersedes?.join(", "),
         superseded_by: e.supersededBy,
         retired_reason: e.retiredReason,
+        files: e.files?.join(", "),
+        commit: e.commit,
       },
       e.body,
     ),
@@ -148,6 +160,13 @@ export function listEntries(scope: Scope, kind: EntryKind): Entry[] {
           : meta.superseded_by
         : undefined,
       retiredReason: meta.retired_reason || undefined,
+      files: meta.files
+        ? meta.files
+            .split(",")
+            .map((f) => f.trim())
+            .filter(Boolean)
+        : undefined,
+      commit: meta.commit || undefined,
       body,
       path,
     });
@@ -156,7 +175,11 @@ export function listEntries(scope: Scope, kind: EntryKind): Entry[] {
 }
 
 export function listAll(scope: Scope): Entry[] {
-  return [...listEntries(scope, "decision"), ...listEntries(scope, "lesson")];
+  return [
+    ...listEntries(scope, "decision"),
+    ...listEntries(scope, "lesson"),
+    ...listEntries(scope, "note"),
+  ];
 }
 
 export function getEntry(
@@ -173,6 +196,7 @@ export function saveEntry(
   title: string,
   body: string,
   supersedes: number[] = [],
+  meta: { files?: string[]; commit?: string } = {},
   now = new Date(),
 ): Entry {
   const existing = listEntries(scope, kind);
@@ -192,6 +216,8 @@ export function saveEntry(
     status: "active",
     date: today(now),
     supersedes: supersedes.length ? supersedes : undefined,
+    files: meta.files?.length ? meta.files : undefined,
+    commit: meta.commit,
     body: body.trim() || cleanTitle,
     path: join(
       scope.dir,
@@ -472,6 +498,7 @@ export function writeHandoff(scope: Scope, h: Handoff): void {
 export function initScope(scope: Scope): void {
   mkdirSync(join(scope.dir, DIRS.decision), { recursive: true });
   mkdirSync(join(scope.dir, DIRS.lesson), { recursive: true });
+  mkdirSync(join(scope.dir, DIRS.note), { recursive: true });
   const ignore = join(scope.dir, ".gitignore");
   if (scope.mode === "repo" && !existsSync(ignore))
     writeFileSync(ignore, "handoff.md\n");

@@ -12,18 +12,21 @@ Everything is plain files. Nothing calls the model behind your back: memory is w
 | convention | A rule for this repository         | project `AGENTS.md` (managed section)     | Always                       |
 | decision   | A choice between real alternatives | `.pi/notebook/decisions/`                 | Title always, body on demand |
 | lesson     | A non-obvious problem and its fix  | `.pi/notebook/lessons/`                   | Title always, body on demand |
+| note       | How the project's code works       | `.pi/notebook/notes/`                     | Title always, body on demand, flagged when its code changes |
 | handoff    | Current goal, status, next steps   | `.pi/notebook/handoff.md` (git-ignored)   | Summary always inside the project; full via `memory_search` |
 
-Decisions and lessons can also be global (`~/.pi/agent/pi-notebook/global/`), but only for facts about your own setup that matter across projects (machines, accounts, shell, installed tools). Everything learned in a project stays there; `/nb:curate` can promote an entry to global later.
+Decisions and lessons can also be global (`~/.pi/agent/pi-notebook/global/`), but only for facts about your own setup that matter across projects (machines, accounts, shell, installed tools). Everything learned in a project stays there; `/nb:curate` can promote an entry to global later. Notes are always per project.
+
+A note records the commit it was saved at and, optionally, the files it describes. When the model reads a note, it is told if those files changed since (including uncommitted edits), or how many commits ago the note was saved when no files are listed.
 
 Projects are git roots. A project gets a notebook only when you run `/nb:init` or when the model first saves something there and you accept.
 
 ## Tools (for the model)
 
-- `memory_save`: save a preference, convention, decision or lesson. Preferences, conventions and global entries ask you to confirm. Saves are rejected when they look like they contain secrets, when decisions or lessons lack their sections (Context/Decision/Consequences, Symptom/Cause/Fix), or when a similar entry already exists.
-- `memory_search`: keyword search, full entries by ref (`"D3 ~L1"`), `"*"` to list everything (handoff first), or `"handoff"` for the full project handoff.
+- `memory_save`: save a preference, convention, decision, lesson or note. Preferences, conventions and global entries ask you to confirm. Saves are rejected when they look like they contain secrets, when decisions or lessons lack their sections (Context/Decision/Consequences, Symptom/Cause/Fix), or when a similar entry already exists.
+- `memory_search`: keyword search, full entries by ref (`"D3 ~L1 N2"`), `"*"` to list everything (handoff first), or `"handoff"` for the full project handoff.
 - `handoff_update`: update the project handoff. Fields left out keep their current value; the result echoes the saved handoff.
-- `memory_retire`: retire decisions or lessons that no longer apply and have no replacement. You confirm. Retired entries leave the index, recall and duplicate checks but stay on file and in search results, marked with the reason. To remove one for good, delete its file yourself.
+- `memory_retire`: retire decisions, lessons or notes that no longer apply and have no replacement. You confirm. Retired entries leave the index, recall and duplicate checks but stay on file and in search results, marked with the reason. To remove one for good, delete its file yourself.
 
 The model cannot read or edit notebook files directly; those tool calls are blocked (for shell commands, the whole command is blocked and the model is told to rerun the other parts). Changes to the managed section of `AGENTS.md` are allowed but flagged.
 
@@ -49,6 +52,8 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 | The model picks SQLite over Postgres for a reason                    | `memory_save` kind `decision`                    | A project entry with Context, Decision, Consequences.                     |
 | A failing build turns out to need a cache clear                      | `memory_save` kind `lesson`                      | A project entry with Symptom, Cause, Fix.                                 |
 | A fix is about your machine, not the project ("brew postgres needs a restart") | `memory_save` kind `lesson`, scope `global` | You confirm; it shows in every project.                                |
+| The model works out how part of the code fits together              | `memory_save` kind `note` with `files`           | A project note ("api: handlers wrap withAuth, routes in src/routes"), titled by area. |
+| The model reads a note whose files changed since                     | `memory_search "N2"`                             | The note comes with "May be outdated: src/routes/a.ts changed since a1b2c3d". |
 | You say "always use pnpm"                                            | `memory_save` kind `preference`                  | You confirm; it lands in `~/.pi/agent/AGENTS.md`.                         |
 | You say "this repo keeps ARCHITECTURE.md current"                    | `memory_save` kind `convention`                  | You confirm; it lands in the project `AGENTS.md`.                         |
 | An entry is outdated or duplicated                                   | `memory_save` with `supersedes: ["D3"]`          | The new entry replaces the old one, which stays on file as superseded.    |
@@ -61,6 +66,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | The model commits, recovers from repeated errors, goes long without saving, or has no handoff yet | A hidden nudge                                   | At its next stopping point the model records what is worth keeping, or ignores the nudge. |
 | Context usage passes `wrapAtContextPercent`                                                        | A hidden nudge and a `/nb:wrap` tip              | The model saves before details are lost to compaction.                                     |
+| You run `/nb:learn` or `/nb:learn error handling`                                                  | `memory_search "*"`, a bounded look at the repo, then `memory_save` | Notes on how the code works and proposed conventions (you confirm each), skipping what AGENTS.md and existing docs cover. |
 | You run `/nb:wrap`                                                                                 | `memory_save` for each item, then `handoff_update` | The session is closed out; the next one starts from the handoff instead of git and docs. |
 
 ## Commands
@@ -71,13 +77,14 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 | `/nb:init [repo\|local]` | Create a notebook for this project                         |
 | `/nb:remember <text>`    | Save a preference or convention without the model          |
 | `/nb:prefs`              | Edit preferences or conventions by hand                    |
-| `/nb:forget <refs> [reason]` | Retire decisions or lessons, e.g. `/nb:forget D3 L1 moved to docker` |
-| `/nb:wrap`               | Ask the model to record decisions, lessons and the handoff |
-| `/nb:curate`             | Ask the model to merge duplicates and retire stale entries |
+| `/nb:forget <refs> [reason]` | Retire decisions, lessons or notes, e.g. `/nb:forget D3 L1 moved to docker` |
+| `/nb:learn [topic]`      | Ask the model to study the repo, or one free-form topic, and record notes and conventions |
+| `/nb:wrap`               | Ask the model to record decisions, lessons, notes and the handoff |
+| `/nb:curate`             | Ask the model to merge duplicates, re-check outdated notes and retire stale entries |
 
 ## Status line
 
-`◆ NB · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work`
+`◆ NB · 3d 5l 4n · handoff updated 2h ago · Tip: /nb:wrap to record finished work`
 
 Signals are checked after every model turn. When one fires, the model gets a short hidden note (asking it to act at its next natural stopping point) and the status line shows a tip. Signals: a commit, recovering from repeated tool errors, no handoff yet, a long stretch without saving, and context usage passing `wrapAtContextPercent` (to save before compaction). Each fires once until the next save, with a cooldown between notes.
 
