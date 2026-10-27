@@ -1,12 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import {
-  matchesKey,
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
 import type { Project, Scope } from "./paths.ts";
-import { type Entry, type Handoff, ref } from "./store.ts";
+import type { Entry, Handoff } from "./store.ts";
 
 export function ago(iso: string, now = Date.now()): string {
   const t = Date.parse(iso);
@@ -18,7 +12,7 @@ export function ago(iso: string, now = Date.now()): string {
   return `${Math.round(h / 24)}d`;
 }
 
-const STALE_MS = 24 * 60 * 60 * 1000;
+export const STALE_MS = 24 * 60 * 60 * 1000;
 
 export interface StatusInfo {
   project?: Project;
@@ -28,7 +22,7 @@ export interface StatusInfo {
   handoff?: Handoff;
 }
 
-function counts(entries: Entry[]): { d: number; l: number; n: number } {
+export function counts(entries: Entry[]): { d: number; l: number; n: number } {
   const active = entries.filter((e) => e.status === "active");
   return {
     d: active.filter((e) => e.kind === "decision").length,
@@ -75,223 +69,4 @@ export function statusLine(th: Theme, s: StatusInfo): string {
     parts.push(th.fg("dim", "empty"));
   }
   return parts.join(sep);
-}
-
-export interface ViewData extends StatusInfo {
-  preferences: string[];
-  conventions: string[];
-  injectedTokens: number;
-}
-
-function rule(th: Theme, width: number, title: string, right = ""): string {
-  const left = `${th.fg("borderMuted", "───")} ${th.fg("accent", "◆")} ${th.fg("accent", th.bold(title))} `;
-  const tail = right
-    ? ` ${th.fg("dim", right)} ${th.fg("borderMuted", "─")}`
-    : "";
-  const fill = Math.max(0, width - visibleWidth(left) - visibleWidth(tail));
-  return truncateToWidth(
-    left + th.fg("borderMuted", "─".repeat(fill)) + tail,
-    width,
-  );
-}
-
-function heading(th: Theme, label: string, meta = ""): string {
-  return `  ${th.fg("text", th.bold(label))}${meta ? `  ${th.fg("dim", meta)}` : ""}`;
-}
-
-/** Wrap `body` to the width, continuation lines aligned under its first character. */
-function hang(prefix: string, body: string, width: number): string[] {
-  const pad = visibleWidth(prefix);
-  if (width - pad < 10) return [prefix + body];
-  return wrapTextWithAnsi(body, width - pad).map(
-    (l, i) => (i ? " ".repeat(pad) : prefix) + l,
-  );
-}
-
-function entryRows(
-  th: Theme,
-  entries: Entry[],
-  max: number,
-  width: number,
-): string[] {
-  const active = entries
-    .filter((e) => e.status === "active")
-    .sort((a, b) => b.id - a.id);
-  const rows = active
-    .slice(0, max)
-    .flatMap((e) =>
-      hang(
-        `    ${th.fg("accent", ref(e).padEnd(5))} `,
-        `${th.fg("text", e.title)}  ${th.fg("dim", e.date)}`,
-        width,
-      ),
-    );
-  if (active.length > max)
-    rows.push(`    ${th.fg("dim", `… ${active.length - max} more`)}`);
-  if (rows.length === 0) rows.push(`    ${th.fg("dim", "none yet")}`);
-  return rows;
-}
-
-export class NotebookView {
-  private cache?: { width: number; lines: string[] };
-
-  constructor(
-    private data: ViewData,
-    private th: Theme,
-    private onClose: () => void,
-  ) {}
-
-  handleInput(key: string): void {
-    if (
-      matchesKey(key, "escape") ||
-      matchesKey(key, "ctrl+c") ||
-      key === "q" ||
-      matchesKey(key, "enter")
-    )
-      this.onClose();
-  }
-
-  invalidate(): void {
-    this.cache = undefined;
-  }
-
-  render(width: number): string[] {
-    if (this.cache?.width === width) return this.cache.lines;
-    const { th, data } = this;
-    const lines: string[] = [""];
-    const where = data.project
-      ? `${data.project.name}${data.scope ? ` · ${data.scope.mode}` : ""}`
-      : "global";
-    lines.push(rule(th, width, "Notebook", where), "");
-
-    if (data.project && !data.scope) {
-      lines.push(
-        `  ${th.fg("dim", "No notebook for this project. Run")} ${th.fg("accent", "/nb:init")} ${th.fg("dim", "or save something.")}`,
-        "",
-      );
-    }
-
-    if (data.scope) {
-      const h = data.handoff;
-      lines.push(
-        heading(
-          th,
-          "Handoff",
-          h?.updated ? `updated ${ago(h.updated)} ago` : "",
-        ),
-      );
-      if (!h) {
-        lines.push(`    ${th.fg("dim", "none yet")}`);
-      } else {
-        const field = (label: string, value: string) =>
-          hang(
-            `    ${th.fg("muted", label.padEnd(8))}`,
-            th.fg("text", value),
-            width,
-          );
-        if (h.goal) lines.push(...field("goal", h.goal));
-        if (h.status) lines.push(...field("status", h.status));
-        h.nextSteps.forEach((s, i) =>
-          lines.push(
-            ...hang(
-              `    ${th.fg("muted", (i === 0 ? "next" : "").padEnd(8))}${th.fg("accent", "›")} `,
-              th.fg("text", s),
-              width,
-            ),
-          ),
-        );
-        h.blockers.forEach((s, i) =>
-          lines.push(
-            ...hang(
-              `    ${th.fg("muted", (i === 0 ? "blocked" : "").padEnd(8))}${th.fg("warning", "!")} `,
-              th.fg("text", s),
-              width,
-            ),
-          ),
-        );
-      }
-      lines.push("");
-      const c = counts(data.projectEntries);
-      const inactive = (s: string) =>
-        data.projectEntries.filter((e) => e.status === s).length;
-      const superseded = inactive("superseded");
-      const retired = inactive("retired");
-      lines.push(
-        heading(
-          th,
-          "Decisions",
-          `${c.d} active${superseded ? ` · ${superseded} superseded` : ""}${retired ? ` · ${retired} retired` : ""}`,
-        ),
-      );
-      lines.push(
-        ...entryRows(
-          th,
-          data.projectEntries.filter((e) => e.kind === "decision"),
-          6,
-          width,
-        ),
-        "",
-      );
-      lines.push(heading(th, "Lessons", `${c.l} active`));
-      lines.push(
-        ...entryRows(
-          th,
-          data.projectEntries.filter((e) => e.kind === "lesson"),
-          6,
-          width,
-        ),
-        "",
-      );
-      lines.push(heading(th, "Notes", `${c.n} active`));
-      lines.push(
-        ...(c.n
-          ? entryRows(
-              th,
-              data.projectEntries.filter((e) => e.kind === "note"),
-              6,
-              width,
-            )
-          : [`    ${th.fg("dim", "none yet, try")} ${th.fg("accent", "/nb:learn")}`]),
-        "",
-      );
-      if (data.conventions.length) {
-        lines.push(heading(th, "Conventions", `${data.conventions.length}`));
-        lines.push(
-          ...data.conventions
-            .slice(0, 6)
-            .flatMap((c) =>
-              hang(`    ${th.fg("dim", "•")} `, th.fg("text", c), width),
-            ),
-          "",
-        );
-      }
-    }
-
-    const g = counts(data.globalEntries);
-    lines.push(
-      heading(
-        th,
-        "Global",
-        `${g.l} environment · ${g.d} decisions · ${data.preferences.length} preferences`,
-      ),
-    );
-    lines.push(...entryRows(th, data.globalEntries, 6, width));
-    lines.push(
-      ...data.preferences
-        .slice(-4)
-        .flatMap((p) =>
-          hang(`    ${th.fg("dim", "•")} `, th.fg("muted", p), width),
-        ),
-      "",
-    );
-
-    lines.push(
-      `  ${th.fg("dim", "injected")} ${th.fg("muted", `≈${data.injectedTokens} tokens/turn`)}`,
-    );
-    lines.push("", `  ${th.fg("dim", "esc close")}`, "");
-
-    const out = lines.map((l) => truncateToWidth(l, width));
-    this.cache = { width, lines: out };
-    return out;
-  }
 }

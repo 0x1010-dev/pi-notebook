@@ -1,7 +1,7 @@
 import { buildSection, estimateTokens } from "../inject.ts";
 import { locate, type Runtime, statusInfo } from "../runtime.ts";
 import { readManaged } from "../store.ts";
-import { NotebookView, type ViewData } from "../ui.ts";
+import { NotebookView, type ViewData } from "../view.ts";
 
 export function registerShowCommand({ pi, session }: Runtime): void {
   pi.registerCommand("nb", {
@@ -31,7 +31,8 @@ export function registerShowCommand({ pi, session }: Runtime): void {
         return;
       }
       await ctx.ui.custom<void>(
-        (_tui, theme, _kb, done) => new NotebookView(data, theme, () => done()),
+        (tui, theme, _kb, done) =>
+          new NotebookView(data, theme, tui, () => done()),
       );
     },
   });

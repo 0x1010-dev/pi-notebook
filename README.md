@@ -37,7 +37,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 
 | When                                                         | What is used                                      | Result                                                                                                                        |
 | ------------------------------------------------------------ | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| A session opens inside a project                             | Nothing; injected automatically                   | The system prompt holds the handoff summary (goal, first next step), decision and lesson titles, preferences and conventions. |
+| A session opens inside a project                             | Nothing; injected automatically                   | The system prompt holds the handoff summary (goal, first next step), decision and lesson titles, preferences and conventions. You see a short notice with the goal, status, next step, blockers and entry counts. |
 | You ask "where did we leave off?", "continue", "what's next" | Nothing; attached automatically, once per session | The full handoff arrives as a hidden note, so the model answers from it without a tool call.                                  |
 | The model needs the plan later in the session                | `memory_search "handoff"`                         | The current handoff, including updates made earlier in this session.                                                          |
 
@@ -74,7 +74,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 
 | Command                  | Does                                                       |
 | ------------------------ | ---------------------------------------------------------- |
-| `/nb`                    | Show the notebook                                          |
+| `/nb`                    | Browse the notebook in tabs (overview, decisions, lessons, notes, global, rules). `↑↓` select or scroll, `PgUp`/`PgDn`, `←→` switch tab, `enter` opens an entry in full, `x` shows retired entries, `esc` closes |
 | `/nb:init [repo\|local]` | Create a notebook for this project                         |
 | `/nb:remember <text>`    | Save a preference or convention without the model          |
 | `/nb:prefs`              | Edit preferences or conventions by hand                    |
