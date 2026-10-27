@@ -16,39 +16,10 @@ function session(): Session {
   return s;
 }
 
-test("hint expires after enough agent runs", () => {
-  const s = session();
-  s.setHint({ command: "/nb:wrap", reason: "r" });
-  for (let i = 0; i < 4; i++) s.ageHint();
-  assert.ok(s.hint);
-  s.ageHint();
-  assert.equal(s.hint, undefined);
-});
-
-test("clearHintIf only clears the matching command", () => {
-  const s = session();
-  s.setHint({ command: "/nb:wrap", reason: "r" });
-  s.clearHintIf("/nb:init");
-  assert.ok(s.hint);
-  s.clearHintIf("/nb:wrap");
-  assert.equal(s.hint, undefined);
-});
-
-test("markSaved keeps the curate hint", () => {
-  const s = session();
-  s.setHint({ command: "/nb:curate", reason: "r" });
-  s.markSaved();
-  assert.equal(s.hint?.command, "/nb:curate");
-  s.setHint({ command: "/nb:wrap", reason: "r" });
-  s.markSaved();
-  assert.equal(s.hint, undefined);
-});
-
 test("a commit raises a milestone nudge once, then it is consumed", () => {
   const s = session();
   s.recordToolResult("bash", "git commit -m x", false);
   assert.equal(s.endTurn(idle), "milestone");
-  assert.equal(s.hint?.command, "/nb:wrap");
   s.recordToolResult("bash", "git status", false);
   assert.notEqual(s.endTurn(idle), "milestone");
 });

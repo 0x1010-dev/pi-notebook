@@ -1,11 +1,8 @@
-import { HINT_TTL_RUNS } from "./constants.ts";
 import { loadConfig } from "./config.ts";
 import {
   COMMIT_RE,
   detectNudge,
   freshSignals,
-  type Hint,
-  NUDGE_HINT,
   type NudgeKind,
 } from "./signals.ts";
 
@@ -29,7 +26,6 @@ export interface TurnInput {
 /** Everything that changes while a session runs. */
 export class Session {
   cfg = loadConfig();
-  hint: Hint | undefined;
   pendingNudge: NudgeKind | undefined;
   suppressNudgeOnce = false;
   handoffShown = false;
@@ -38,7 +34,6 @@ export class Session {
   /** Guard warnings keyed by tool call id, appended to that call's result. */
   readonly warnings = new Map<string, string>();
 
-  private hintAge = 0;
   private signals = freshSignals();
   private fired = new Set<NudgeKind>();
   private turnsSinceSave = 0;
@@ -52,7 +47,6 @@ export class Session {
     this.invalidate();
     this.recalled = new Set();
     this.handoffShown = false;
-    this.setHint(undefined);
     this.pendingNudge = undefined;
     this.signals = freshSignals();
     this.fired = new Set();
@@ -74,26 +68,11 @@ export class Session {
     this.snapshot = undefined;
   }
 
-  setHint(next: Hint | undefined): void {
-    this.hint = next;
-    this.hintAge = 0;
-  }
-
-  clearHintIf(command: string): void {
-    if (this.hint?.command === command) this.setHint(undefined);
-  }
-
-  /** Counts one finished agent run toward hint expiry. */
-  ageHint(): void {
-    if (this.hint && ++this.hintAge >= HINT_TTL_RUNS) this.setHint(undefined);
-  }
-
   /** Something durable was written, so earlier nudges are satisfied. */
   markSaved(): void {
     this.turnsSinceSave = 0;
     this.fired = new Set();
     this.signals = freshSignals();
-    if (this.hint && this.hint.command !== "/nb:curate") this.setHint(undefined);
   }
 
   recordToolResult(toolName: string, command: unknown, isError: boolean): void {
@@ -107,7 +86,7 @@ export class Session {
     this.errorsSinceSuccess = 0;
   }
 
-  /** Advances turn counters and returns the nudge to send, updating state and hint for it. */
+  /** Advances turn counters and returns the nudge to send, updating state for it. */
   endTurn(input: TurnInput): NudgeKind | undefined {
     this.turnsSinceSave++;
     this.turnsSinceNudge++;
@@ -136,7 +115,6 @@ export class Session {
     if (kind === "context") this.contextNudged = true;
     if (kind === "milestone") this.signals.committed = false;
     if (kind === "lesson") this.signals.recovered = false;
-    this.setHint(NUDGE_HINT[kind]);
     return kind;
   }
 }

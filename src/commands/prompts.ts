@@ -2,7 +2,6 @@ import { join } from "node:path";
 import { agentDir, findProject, type Scope } from "../paths.ts";
 import { curatePrompt, learnPrompt, wrapPrompt } from "../prompts.ts";
 import { locate, type Runtime } from "../runtime.ts";
-import { loadState, saveState } from "../state.ts";
 import { listAll } from "../store.ts";
 
 /** Commands that hand the model a prompt instead of editing notes directly. */
@@ -38,9 +37,6 @@ export function registerPromptCommands(rt: Runtime): void {
         ctx.ui.notify("Nothing to curate yet.", "info");
         return;
       }
-      const state = loadState();
-      for (const s of scopes) state.curated[s.dir] = listAll(s).length;
-      saveState(state);
       const skillDirs = [
         ...(project ? [join(project.root, ".pi", "skills")] : []),
         join(agentDir(), "skills"),

@@ -5,8 +5,6 @@ import { notebookHome } from "./paths.ts";
 export interface PersistentState {
   /** Project roots where the user chose "never ask". */
   declined: string[];
-  /** Entry count per scope dir at the last /nb:curate. */
-  curated: Record<string, number>;
 }
 
 function statePath(): string {
@@ -18,11 +16,9 @@ export function loadState(): PersistentState {
     const raw = JSON.parse(readFileSync(statePath(), "utf8"));
     return {
       declined: Array.isArray(raw.declined) ? raw.declined : [],
-      curated:
-        raw.curated && typeof raw.curated === "object" ? raw.curated : {},
     };
   } catch {
-    return { declined: [], curated: {} };
+    return { declined: [] };
   }
 }
 

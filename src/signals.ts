@@ -95,16 +95,3 @@ export function nudgeText(kind: NudgeKind): string {
   };
   return `[pi-notebook] ${body[kind]} ${LATER}`;
 }
-
-export interface Hint {
-  command: string;
-  reason: string;
-}
-
-export const NUDGE_HINT: Record<NudgeKind, Hint> = {
-  context: { command: "/nb:wrap", reason: "to save before compaction" },
-  milestone: { command: "/nb:wrap", reason: "to record finished work" },
-  lesson: { command: "/nb:wrap", reason: "to record the fix" },
-  handoff: { command: "/nb:wrap", reason: "to save the plan" },
-  checkpoint: { command: "/nb:wrap", reason: "to save progress" },
-};

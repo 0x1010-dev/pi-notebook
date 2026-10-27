@@ -52,7 +52,6 @@ export function registerInitCommand(rt: Runtime): void {
         state.declined = state.declined.filter((r) => r !== project.root);
         saveState(state);
       }
-      rt.session.clearHintIf("/nb:init");
       rt.session.invalidate();
       ctx.ui.notify(`◆ Notebook created at ${scope.dir}`, "info");
       rt.refreshStatus(ctx);

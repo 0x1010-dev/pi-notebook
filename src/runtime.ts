@@ -39,7 +39,6 @@ export function statusInfo(located: Located, session: Session): StatusInfo {
     projectEntries: scope ? listAll(scope) : [],
     globalEntries: listAll(global),
     handoff: scope ? readHandoff(scope) : undefined,
-    hint: session.hint,
   };
 }
 
@@ -89,7 +88,6 @@ export function createRuntime(pi: ExtensionAPI): Runtime {
     sendOwnPrompt(ctx, prompt) {
       session.suppressNudgeOnce = true;
       session.invalidate();
-      session.setHint(undefined);
       if (ctx.isIdle()) pi.sendUserMessage(prompt);
       else pi.sendUserMessage(prompt, { deliverAs: "followUp" });
       refreshStatus(ctx);

@@ -6,7 +6,6 @@ import {
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
 import type { Project, Scope } from "./paths.ts";
-import type { Hint } from "./signals.ts";
 import { type Entry, type Handoff, ref } from "./store.ts";
 
 export function ago(iso: string, now = Date.now()): string {
@@ -27,7 +26,6 @@ export interface StatusInfo {
   projectEntries: Entry[];
   globalEntries: Entry[];
   handoff?: Handoff;
-  hint?: Hint;
 }
 
 function counts(entries: Entry[]): { d: number; l: number; n: number } {
@@ -45,14 +43,13 @@ function summary(th: Theme, entries: Entry[]): string {
   return `${th.fg("text", `${c.d}d`)} ${th.fg("text", `${c.l}l`)}${notes}`;
 }
 
-/** Footer status, e.g. `◆ NB · 3d 5l · handoff updated 2h ago · Tip: /nb:wrap to record finished work` */
+/** Footer status, e.g. `◆ NB · 3d 5l · handoff updated 2h ago` */
 export function statusLine(th: Theme, s: StatusInfo): string {
   const sep = th.fg("dim", " · ");
   const lit = !!s.scope || s.globalEntries.length > 0;
   const parts = [
     `${th.fg(lit ? "accent" : "dim", lit ? "◆" : "◇")} ${th.fg(lit ? "muted" : "dim", "NB")}`,
   ];
-  let tip = s.hint;
 
   if (s.scope) {
     parts.push(summary(th, s.projectEntries));
@@ -72,17 +69,10 @@ export function statusLine(th: Theme, s: StatusInfo): string {
     }
   } else if (s.project) {
     parts.push(th.fg("dim", "not set up"));
-    tip ??= { command: "/nb:init", reason: "to start one" };
   } else if (lit) {
     parts.push(`${th.fg("muted", "global")} ${summary(th, s.globalEntries)}`);
   } else {
     parts.push(th.fg("dim", "empty"));
-  }
-  if (tip) {
-    const color = s.hint ? "accent" : "dim";
-    parts.push(
-      `${th.fg("dim", "Tip:")} ${th.fg(color, tip.command)} ${th.fg("dim", tip.reason)}`,
-    );
   }
   return parts.join(sep);
 }
@@ -298,10 +288,6 @@ export class NotebookView {
     lines.push(
       `  ${th.fg("dim", "injected")} ${th.fg("muted", `≈${data.injectedTokens} tokens/turn`)}`,
     );
-    if (data.hint)
-      lines.push(
-        `  ${th.fg("accent", `▸ ${data.hint.command}`)}  ${th.fg("dim", data.hint.reason)}`,
-      );
     lines.push("", `  ${th.fg("dim", "esc close")}`, "");
 
     const out = lines.map((l) => truncateToWidth(l, width));

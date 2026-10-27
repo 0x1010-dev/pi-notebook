@@ -66,7 +66,7 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 | When                                                                                               | What is used                                     | Result                                                                                     |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------ |
 | The model commits, recovers from repeated errors, goes long without saving, or has no handoff yet | A hidden nudge                                   | At its next stopping point the model records what is worth keeping, or ignores the nudge. |
-| Context usage passes `wrapAtContextPercent`                                                        | A hidden nudge and a `/nb:wrap` tip              | The model saves before details are lost to compaction.                                     |
+| Context usage passes `wrapAtContextPercent`                                                        | A hidden nudge                                   | The model saves before details are lost to compaction.                                     |
 | You run `/nb:learn` or `/nb:learn error handling`                                                  | `memory_search "*"`, a bounded look at the repo, then `memory_save` | Notes on how the code works and proposed conventions (you confirm each), skipping what AGENTS.md and existing docs cover. |
 | You run `/nb:wrap`                                                                                 | `memory_save` for each item, then `handoff_update` | The session is closed out; the next one starts from the handoff instead of git and docs. |
 
@@ -85,9 +85,9 @@ The model cannot read or edit notebook files directly; those tool calls are bloc
 
 ## Status line
 
-`◆ NB · 3d 5l 4n · handoff updated 2h ago · Tip: /nb:wrap to record finished work`
+`◆ NB · 3d 5l 4n · handoff updated 2h ago`
 
-Signals are checked after every model turn. When one fires, the model gets a short hidden note (asking it to act at its next natural stopping point) and the status line shows a tip. Signals: a commit, recovering from repeated tool errors, no handoff yet, a long stretch without saving, and context usage passing `wrapAtContextPercent` (to save before compaction). Each fires once until the next save, with a cooldown between notes.
+Signals are checked after every model turn. When one fires, the model gets a short hidden note asking it to act at its next natural stopping point. Signals: a commit, recovering from repeated tool errors, no handoff yet, a long stretch without saving, and context usage passing `wrapAtContextPercent` (to save before compaction). Each fires once until the next save, with a cooldown between notes.
 
 ## Settings
 
@@ -103,7 +103,6 @@ In `~/.pi/agent/settings.json`:
     "handoffAfterTurns": 6,
     "nudgeCooldownTurns": 8,
     "wrapAtContextPercent": 50,
-    "curateAfter": 10,
     "nudgeModel": true,
     "guard": true,
     "refreshSection": "session",

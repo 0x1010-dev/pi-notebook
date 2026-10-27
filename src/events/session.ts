@@ -1,4 +1,3 @@
-import { HANDOFF_FRESH_MS } from "../constants.ts";
 import { locate, type Runtime } from "../runtime.ts";
 import { readHandoff } from "../store.ts";
 
@@ -19,11 +18,6 @@ export function registerSessionEvents({ pi, session, refreshStatus }: Runtime): 
 
   pi.on("session_compact", async (_event, ctx) => {
     session.onCompact();
-    const { scope } = locate(ctx.cwd);
-    const h = scope ? readHandoff(scope) : undefined;
-    const fresh = h && Date.now() - Date.parse(h.updated) < HANDOFF_FRESH_MS;
-    if (scope && !fresh)
-      session.setHint({ command: "/nb:wrap", reason: "to save progress" });
     refreshStatus(ctx);
   });
 }

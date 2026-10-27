@@ -17,8 +17,6 @@ export interface NotebookConfig {
   nudgeCooldownTurns: number;
   /** Context usage percent that triggers a save-before-compaction nudge. 0 disables. */
   wrapAtContextPercent: number;
-  /** New entries since the last curate before suggesting /nb:curate. */
-  curateAfter: number;
   /** Send short hidden nudges to the model when signals fire. */
   nudgeModel: boolean;
   /** Block file tools and shell commands that touch notebook files. */
@@ -39,7 +37,6 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   handoffAfterTurns: 6,
   nudgeCooldownTurns: 8,
   wrapAtContextPercent: 50,
-  curateAfter: 10,
   nudgeModel: true,
   guard: true,
   refreshSection: "session",
@@ -64,7 +61,6 @@ export function loadConfig(): NotebookConfig {
       "checkpointTurns",
       "handoffAfterTurns",
       "nudgeCooldownTurns",
-      "curateAfter",
     ] as const) {
       if (typeof raw[key] === "number" && raw[key] > 0) cfg[key] = raw[key];
     }

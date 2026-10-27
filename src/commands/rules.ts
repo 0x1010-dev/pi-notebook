@@ -43,7 +43,6 @@ export function registerRememberCommand(rt: Runtime): void {
         }
       }
       appendManaged(file, RULE_HEADING[kind], input);
-      rt.session.clearHintIf("/nb:remember");
       rt.session.invalidate();
       ctx.ui.notify(`✓ Saved ${kind}: ${oneLine(input)}`, "info");
       rt.refreshStatus(ctx);
