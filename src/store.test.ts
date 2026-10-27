@@ -8,6 +8,7 @@ import {
   appendManaged,
   findSimilar,
   initScope,
+  keywords,
   listEntries,
   parseRef,
   readHandoff,
@@ -18,7 +19,7 @@ import {
   retireEntry,
   saveEntry,
   searchEntries,
-  supersedeEntry,
+  updateEntry,
   writeHandoff,
 } from "./store.ts";
 
@@ -27,49 +28,67 @@ function scope(kind: Scope["kind"] = "project"): Scope {
   return { kind, dir, agentsFile: join(dir, "AGENTS.md"), mode: "repo" };
 }
 
-test("saveEntry numbers entries and supersedes", () => {
+test("saveEntry numbers entries", () => {
   const s = scope();
   initScope(s);
   const a = saveEntry(s, "decision", "Use SQLite: for cache", "Context: x");
-  const c = saveEntry(s, "decision", "Use Redis", "Context: z");
-  const b = saveEntry(s, "decision", "Use Postgres", "Context: y", [
-    a.id,
-    c.id,
-  ]);
+  saveEntry(s, "decision", "Use Redis", "Context: z");
+  const c = saveEntry(s, "decision", "Use Postgres", "");
   assert.equal(a.id, 1);
-  assert.equal(b.id, 3);
+  assert.equal(c.id, 3);
   const all = listEntries(s, "decision");
-  assert.equal(all[0].status, "superseded");
-  assert.equal(all[0].supersededBy, "D3");
-  assert.equal(all[1].supersededBy, "D3");
+  assert.deepEqual(all.map((e) => e.id), [1, 2, 3]);
+  assert.ok(all.every((e) => e.status === "active"));
   assert.equal(all[0].title, "Use SQLite: for cache");
-  assert.deepEqual(all[2].supersedes, [1, 2]);
-  assert.equal(all[2].status, "active");
+  assert.equal(all[2].body, "");
   assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), "handoff.md\n");
 });
 
-test("supersedeEntry promotes across scopes and old numeric refs still parse", () => {
-  const project = scope();
-  const global = scope("global");
-  const p = saveEntry(project, "lesson", "Tokio broadcast for fan-out", "x");
-  const g = saveEntry(global, "lesson", "Tokio broadcast for fan-out", "x");
-  supersedeEntry(project, "lesson", p.id, ref(g));
-  assert.equal(listEntries(project, "lesson")[0].supersededBy, "~L1");
-  assert.throws(
-    () => supersedeEntry(project, "lesson", 9, "~L1"),
-    /L9 not found/,
-  );
-
+test("legacy superseded entries still load", () => {
+  const s = scope();
+  const p = saveEntry(s, "lesson", "Tokio broadcast for fan-out", "x");
   writeFileSync(
     p.path,
     "---\nid: 1\nkind: lesson\ntitle: t\nstatus: superseded\nsuperseded_by: 2\n---\n\nx\n",
   );
-  assert.equal(listEntries(project, "lesson")[0].supersededBy, "L2");
+  const [e] = listEntries(s, "lesson");
+  assert.equal(e.status, "superseded");
+  assert.equal(e.supersededBy, "L2");
 });
 
-test("saveEntry rejects unknown supersedes", () => {
+test("updateEntry rewrites in place", () => {
   const s = scope();
-  assert.throws(() => saveEntry(s, "lesson", "x", "y", [9]), /L9 not found/);
+  const e = saveEntry(s, "lesson", "Old title", "keep me", {}, new Date("2026-01-01T12:00:00"));
+  const u = updateEntry(s, "lesson", e.id, { title: "New title" }, new Date("2026-02-03T12:00:00"));
+  assert.equal(u.id, e.id);
+  assert.equal(u.path, e.path);
+  const [r] = listEntries(s, "lesson");
+  assert.equal(r.title, "New title");
+  assert.equal(r.body, "keep me");
+  assert.equal(r.date, "2026-02-03");
+  assert.equal(listEntries(s, "lesson").length, 1);
+});
+
+test("updateEntry rejects retired and missing entries", () => {
+  const s = scope();
+  const e = saveEntry(s, "lesson", "Thing", "x");
+  retireEntry(s, "lesson", e.id, "gone");
+  assert.throws(() => updateEntry(s, "lesson", e.id, { title: "y" }), /L1 is retired/);
+  assert.throws(() => updateEntry(s, "lesson", 9, { title: "y" }), /L9 not found/);
+});
+
+test("appendManaged skips existing lines", () => {
+  const s = scope();
+  assert.equal(appendManaged(s.agentsFile, "## Prefs", "Use pnpm"), true);
+  assert.equal(appendManaged(s.agentsFile, "## Prefs", "Use pnpm"), false);
+  assert.deepEqual(readManaged(s.agentsFile), ["Use pnpm"]);
+});
+
+test("keywords stems plural tokens", () => {
+  const k = keywords("hangs caches class");
+  assert.ok(k.includes("hang"));
+  assert.ok(k.includes("cache"));
+  assert.ok(k.includes("class"));
 });
 
 test("retireEntry keeps the file but drops it from recall and duplicates", () => {
@@ -99,7 +118,7 @@ test("refs round-trip", () => {
 test("notes keep files and commit", () => {
   const s = scope();
   initScope(s);
-  const n = saveEntry(s, "note", "auth: session cookies", "Middleware in src/auth", [], {
+  const n = saveEntry(s, "note", "auth: session cookies", "Middleware in src/auth", {
     files: ["src/auth", "src/server.ts"],
     commit: "a1b2c3d",
   });

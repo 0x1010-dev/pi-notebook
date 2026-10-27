@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkStructure, findSecret } from "./validate.ts";
+import { clipTitle, findSecret } from "./validate.ts";
 
 test("finds common secrets", () => {
   assert.equal(findSecret("key AKIAABCDEFGHIJKLMNOP here"), "AWS access key");
@@ -28,31 +28,13 @@ test("allows placeholders and prose", () => {
   assert.equal(findSecret("postgres://localhost:5432/app"), undefined);
 });
 
-test("requires entry sections", () => {
-  assert.equal(
-    checkStructure("lesson", "Symptom: x\nCause: y\nFix: z"),
-    undefined,
-  );
-  assert.equal(
-    checkStructure(
-      "decision",
-      "## Context\nx\n## Decision\ny\n## Consequences\nz",
-    ),
-    undefined,
-  );
-  assert.equal(
-    checkStructure(
-      "decision",
-      "**Context**: a\n**Decision**: b\n**Consequences**: c",
-    ),
-    undefined,
-  );
-  assert.match(
-    checkStructure("lesson", "Symptom: x\nFix: z") ?? "",
-    /missing Cause/,
-  );
-  assert.match(
-    checkStructure("decision", "we picked sqlite") ?? "",
-    /missing Context, Decision, Consequences/,
-  );
+test("clipTitle leaves short titles alone", () => {
+  assert.deepEqual(clipTitle("Use  pnpm"), { title: "Use pnpm", clipped: false });
+});
+
+test("clipTitle shortens long titles at a word boundary", () => {
+  const r = clipTitle("word ".repeat(40));
+  assert.ok(r.title.length <= 120);
+  assert.ok(r.title.endsWith("…"));
+  assert.equal(r.clipped, true);
 });

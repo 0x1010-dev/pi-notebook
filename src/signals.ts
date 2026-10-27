@@ -29,7 +29,7 @@ export interface NudgePolicy {
 }
 
 const PREFERENCE_RE =
-  /\b(always|never|from now on|going forward|in the future|i prefer|prefer(?:s|red)? (?:to|using)|i'd rather|i would rather|instead of|i like (?:it|to|when)|remember (?:that|to)|make sure (?:you|to) always)\b/i;
+  /\b(from now on|going forward|in the future|i prefer|i'd rather|i would rather|always use|never use|remember (?:that|to)|make sure (?:you|to) always)\b/i;
 
 export function looksLikePreference(text: string): boolean {
   return PREFERENCE_RE.test(text);
@@ -87,7 +87,7 @@ export function nudgeText(kind: NudgeKind): string {
     milestone:
       "A piece of work was just committed. If it involved a choice between real alternatives or solved a non-obvious problem, record it with memory_save, and update the handoff with handoff_update. Otherwise ignore this note.",
     lesson:
-      "Recent tool calls failed before succeeding. If the cause and fix are non-obvious and likely to recur, record them with memory_save kind lesson. Otherwise ignore this note.",
+      "Recent tool calls failed before succeeding. If the cause and fix are non-obvious and likely to recur, record them with memory_save kind lesson (kind environment only if the cause is the user's own machine or accounts). If a lesson already covers it, update that one by ref. Otherwise ignore this note.",
     handoff:
       "This project has no handoff yet. If there is a goal or plan in progress, call handoff_update so a later session can resume it. Otherwise ignore this note.",
     checkpoint:

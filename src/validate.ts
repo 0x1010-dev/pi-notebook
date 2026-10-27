@@ -1,4 +1,4 @@
-import type { EntryKind } from "./store.ts";
+import { oneLine } from "./store.ts";
 
 const SECRET_PATTERNS: [string, RegExp][] = [
   ["private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
@@ -26,24 +26,14 @@ export function secretError(kind: string): string {
   return `Not saved: the text looks like it contains a ${kind}. Notebook entries may be committed to git and are shown to every future session. Replace the value with a placeholder such as <REDACTED> or $ENV_VAR and try again.`;
 }
 
-const SECTIONS: Record<EntryKind, string[]> = {
-  decision: ["Context", "Decision", "Consequences"],
-  lesson: ["Symptom", "Cause", "Fix"],
-  note: [],
-};
+export const TITLE_MAX = 120;
+export const BODY_MAX = 8000;
 
-const has = (body: string, label: string) =>
-  new RegExp(`(^|\\n)\\s*(#{1,6}\\s*)?\\**${label}\\**\\s*(:|\\n)`, "i").test(
-    body,
-  );
-
-/** Error message when the body lacks the required sections. */
-export function checkStructure(
-  kind: EntryKind,
-  body: string,
-): string | undefined {
-  const missing = SECTIONS[kind].filter((s) => !has(body, s));
-  if (missing.length === 0) return undefined;
-  const example = SECTIONS[kind].map((s) => `${s}: ...`).join("\n");
-  return `Not saved: a ${kind} body needs these sections, missing ${missing.join(", ")}. Use this shape:\n${example}`;
+/** Shorten to TITLE_MAX at a word boundary. */
+export function clipTitle(title: string): { title: string; clipped: boolean } {
+  const clean = oneLine(title);
+  if (clean.length <= TITLE_MAX) return { title: clean, clipped: false };
+  const space = clean.lastIndexOf(" ", TITLE_MAX - 1);
+  const cut = space > 0 ? clean.slice(0, space) : clean.slice(0, TITLE_MAX - 1);
+  return { title: `${cut.trimEnd()}…`, clipped: true };
 }

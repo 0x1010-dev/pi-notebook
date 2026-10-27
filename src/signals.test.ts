@@ -25,6 +25,8 @@ test("preference detection", () => {
   assert.ok(looksLikePreference("never use em-dashes"));
   assert.ok(!looksLikePreference("fix the failing test"));
   assert.ok(!looksLikePreference("don't break the build"));
+  assert.ok(!looksLikePreference("this always fails on CI"));
+  assert.ok(!looksLikePreference("use X instead of Y here"));
 });
 
 test("commit detection", () => {

@@ -195,17 +195,10 @@ export function saveEntry(
   kind: EntryKind,
   title: string,
   body: string,
-  supersedes: number[] = [],
   meta: { files?: string[]; commit?: string } = {},
   now = new Date(),
 ): Entry {
   const existing = listEntries(scope, kind);
-  const old = supersedes.map((n) => {
-    const hit = existing.find((e) => e.id === n);
-    if (!hit)
-      throw new Error(`${ref({ scope: scope.kind, kind, id: n })} not found`);
-    return hit;
-  });
   const id = existing.reduce((max, e) => Math.max(max, e.id), 0) + 1;
   const cleanTitle = oneLine(title);
   const entry: Entry = {
@@ -215,10 +208,9 @@ export function saveEntry(
     title: cleanTitle,
     status: "active",
     date: today(now),
-    supersedes: supersedes.length ? supersedes : undefined,
     files: meta.files?.length ? meta.files : undefined,
     commit: meta.commit,
-    body: body.trim() || cleanTitle,
+    body: body.trim(),
     path: join(
       scope.dir,
       DIRS[kind],
@@ -226,21 +218,32 @@ export function saveEntry(
     ),
   };
   writeEntry(entry);
-  for (const o of old)
-    writeEntry({ ...o, status: "superseded", supersededBy: ref(entry) });
   return entry;
 }
 
-/** Mark an entry superseded by an entry elsewhere, e.g. a project lesson promoted to global. */
-export function supersedeEntry(
+/** Rewrite an active entry in place; same id and file. Omitted fields keep their value. */
+export function updateEntry(
   scope: Scope,
   kind: EntryKind,
   id: number,
-  byRef: string,
-): void {
+  patch: { title?: string; body?: string; files?: string[]; commit?: string },
+  now = new Date(),
+): Entry {
   const e = getEntry(scope, kind, id);
-  if (!e) throw new Error(`${ref({ scope: scope.kind, kind, id })} not found`);
-  writeEntry({ ...e, status: "superseded", supersededBy: byRef });
+  const r = ref({ scope: scope.kind, kind, id });
+  if (!e) throw new Error(`${r} not found.`);
+  if (e.status !== "active")
+    throw new Error(`${r} is ${e.status}; save a new entry instead.`);
+  const updated: Entry = {
+    ...e,
+    title: patch.title ? oneLine(patch.title) : e.title,
+    body: patch.body !== undefined ? patch.body.trim() : e.body,
+    files: patch.files ?? e.files,
+    commit: patch.commit ?? e.commit,
+    date: today(now),
+  };
+  writeEntry(updated);
+  return updated;
 }
 
 /** Take an entry out of use without a replacement. The file stays. */
@@ -276,7 +279,12 @@ export function keywords(text: string): string[] {
         .toLowerCase()
         .split(/[^a-z0-9_.-]+/)
         .map((t) => t.replace(/^[.-]+|[.-]+$/g, ""))
-        .filter((t) => t.length > 1 && !STOPWORDS.has(t)),
+        .filter((t) => t.length > 1 && !STOPWORDS.has(t))
+        .map((t) =>
+          t.length > 3 && t.endsWith("s") && !t.endsWith("ss")
+            ? t.slice(0, -1)
+            : t,
+        ),
     ),
   ];
 }
@@ -366,6 +374,15 @@ function snippetFor(body: string, terms: string[]): string {
 
 export const MANAGED_START = "<!-- pi-notebook:start -->";
 export const MANAGED_END = "<!-- pi-notebook:end -->";
+
+/** Kinds stored as one-line rules in AGENTS.md instead of as entries. */
+export type RuleKind = "preference" | "convention";
+
+export const RULE_HEADING: Record<RuleKind, string> = {
+  preference: "## Preferences",
+  convention: "## Conventions",
+};
+
 const START = MANAGED_START;
 const END = MANAGED_END;
 const NOTICE =
@@ -389,7 +406,8 @@ export function appendManaged(
   file: string,
   heading: string,
   text: string,
-): void {
+): boolean {
+  if (readManaged(file).includes(oneLine(text))) return false;
   const line = `- ${oneLine(text)}`;
   const src = existsSync(file) ? readFileSync(file, "utf8") : "";
   const s = src.indexOf(START);
@@ -402,6 +420,7 @@ export function appendManaged(
     out = `${prefix}${heading}\n\n${START}\n${NOTICE}\n${line}\n${END}\n`;
   }
   writeFile(file, out);
+  return true;
 }
 
 /** Replace every managed line, creating the section only when there is something to write. */

@@ -282,7 +282,7 @@ export class NotebookView {
       heading(
         th,
         "Global",
-        `${g.l} lessons · ${g.d} decisions · ${data.preferences.length} preferences`,
+        `${g.l} environment · ${g.d} decisions · ${data.preferences.length} preferences`,
       ),
     );
     lines.push(...entryRows(th, data.globalEntries, 6, width));
