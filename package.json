@@ -19,6 +19,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "migrate": "tsx scripts/migrate.ts",
     "test": "tsx --test \"src/**/*.test.ts\""
   },
   "peerDependencies": {
@@ -29,6 +30,7 @@
   },
   "files": [
     "src",
+    "scripts",
     "!src/**/*.test.ts",
     "README.md",
     "LICENSE"

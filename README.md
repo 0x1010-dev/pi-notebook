@@ -190,7 +190,50 @@ The previous decision/lesson/note collections and D/L/N refs are not read by thi
 version. There is no automatic migration or rewriting of existing notebooks.
 Recreate or deliberately convert useful current knowledge into `memories/`;
 preserve old files separately if their history matters. The handoff format and
-tool arguments changed too: rewrite an old handoff with the new tool before use.
+tool arguments changed too.
+
+### One-off staged converter
+
+From a checkout of this repository, first preview the conversion without writing:
+
+```sh
+npm run migrate -- --source /path/to/project/.pi/notebook
+```
+
+To create a separate staging directory, explicitly add `--write` and a fresh output:
+
+```sh
+npm run migrate -- \
+  --source /path/to/project/.pi/notebook \
+  --rules /path/to/project/AGENTS.md \
+  --output /path/to/notebook-review \
+  --write
+```
+
+Use `--scope global` when converting a global notebook. Convert project and global
+notebooks separately; cross-scope references are flagged for manual reconciliation.
+The source notebook is never modified, and output cannot exist already or be inside
+the source notebook (including through symlinked parents).
+
+Staging contains:
+
+- `notebook/`: active entries in the new format, plus a translated handoff and index.
+- `originals/`: verbatim legacy entries (including historical ones), the handoff,
+  and optionally the supplied rules file. This is **not** a full notebook backup.
+- `reference-map.json`: old-to-new IDs for converted active entries.
+- `provenance.json`: original metadata, source paths and content hashes.
+- `REVIEW.md`: review checklist, historical entries and unresolved-reference warnings.
+
+The converter preserves content, dates and code baselines; it does not invent tags,
+verify claims, merge topics, correct contradictions or install rules. References to
+converted active entries are rewritten; historical, missing and cross-scope refs
+remain visible with warnings. Review replacements even inside code examples, since
+reference rewriting is textual. Old handoff headings are translated, not reconciled.
+
+Read `REVIEW.md`, curate by topic, verify useful claims and test representative
+searches. Back up the entire live notebook and rules independently before manually
+installing the reviewed `notebook/` contents. Keep the originals for rollback.
+Nothing is activated automatically.
 
 ## Development and evaluation
 
