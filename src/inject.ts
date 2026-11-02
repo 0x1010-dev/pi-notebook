@@ -1,5 +1,5 @@
 import type { Project, Scope } from "./paths.ts";
-import { type Handoff, listAll, readHandoff, readManaged, ref } from "./store.ts";
+import { type Entry, type Handoff, listAll, readHandoff, readManaged, ref } from "./store.ts";
 import { ago } from "./ui.ts";
 
 export interface InjectInput {
@@ -8,6 +8,12 @@ export interface InjectInput {
   global: Scope;
   budgetTokens: number;
   globalLimit: number;
+  snapshot?: {
+    projectEntries: Entry[];
+    globalEntries: Entry[];
+    handoff?: Handoff;
+    conventions: string[];
+  };
 }
 
 const HEADER = [
@@ -56,16 +62,16 @@ export function buildSection(input: InjectInput): string {
   };
   for (const line of HEADER) push(line);
   if (project) push(`Project: ${project.name}${scope ? "" : " (no notebook; memory_save can create one)"}`);
-  const h = scope && readHandoff(scope);
+  const h = input.snapshot ? input.snapshot.handoff : scope && readHandoff(scope);
   if (h) {
     push(`Handoff (${stamp(h)}): ${h.goal}`);
     if (h.nextSteps[0]) push(`Next: ${h.nextSteps[0]}`);
     push('Read the full current handoff with memory_search "handoff" when resuming.');
   }
   if (scope?.mode === "local")
-    for (const rule of readManaged(scope.agentsFile)) push(`Project rule: ${rule}`);
-  const projectEntries = scope ? listAll(scope) : [];
-  const globalEntries = listAll(global);
+    for (const rule of input.snapshot?.conventions ?? readManaged(scope.agentsFile)) push(`Project rule: ${rule}`);
+  const projectEntries = input.snapshot?.projectEntries ?? (scope ? listAll(scope) : []);
+  const globalEntries = input.snapshot?.globalEntries ?? listAll(global);
   const entries = [...projectEntries, ...globalEntries.slice(0, input.globalLimit)]
     .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   let shown = 0;

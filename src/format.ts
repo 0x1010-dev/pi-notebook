@@ -19,13 +19,17 @@ export function entryHead(e: Entry): string {
 
 /** Retrieval metadata and code-staleness warnings. */
 export function noteLines(cwd: string, e: Entry): string[] {
-  const lines = [
-    ...(e.tags.length ? [`Tags: ${e.tags.map((t) => `#${t}`).join(" ")}`] : []),
-    ...(e.files?.length ? [`Files: ${e.files.join(", ")}`] : []),
-  ];
+  const lines = metadataLines(e);
   const root = findProject(cwd)?.root;
   const warn =
     root && e.commit ? staleness(root, e.commit, e.files) : undefined;
   if (warn) lines.push(warn);
   return lines;
+}
+
+export function metadataLines(e: Entry): string[] {
+  return [
+    ...(e.tags.length ? [`Tags: ${e.tags.map((t) => `#${t}`).join(" ")}`] : []),
+    ...(e.files?.length ? [`Files: ${e.files.join(", ")}`] : []),
+  ];
 }

@@ -31,7 +31,7 @@ export function locate(cwd: string): Located {
   };
 }
 
-export function statusInfo(located: Located, session: Session): StatusInfo {
+export function statusInfo(located: Located): StatusInfo {
   const { project, scope, global } = located;
   return {
     project,
@@ -58,7 +58,7 @@ export function createRuntime(pi: ExtensionAPI): Runtime {
 
   const refreshStatus = (ctx: ExtensionContext): void => {
     if (!ctx.hasUI) return;
-    const info = statusInfo(locate(ctx.cwd), session);
+    const info = statusInfo(locate(ctx.cwd));
     const placement = session.cfg.statusPlacement;
     if (placement === "footer") {
       ctx.ui.setWidget(STATUS_KEY, undefined);

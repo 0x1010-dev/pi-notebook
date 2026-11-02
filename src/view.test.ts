@@ -153,3 +153,97 @@ test("notebook renders simplified tabs and entry context", () => {
   assert.ok(memories.includes("/x/memory-1.md"));
   assert.ok(memories.includes("Files: src/auth.ts"));
 });
+
+test("large lists check freshness only after rendering visible entries and reuse formatted rows", async () => {
+  let formatting = 0;
+  let renders = 0;
+  const checked: string[] = [];
+  const theme = {
+    fg: (_color: string, value: string) => { formatting++; return value; },
+    bold: (value: string) => value,
+  } as Theme;
+  const data = {
+    ...base, handoff: undefined, globalEntries: [],
+    projectEntries: Array.from({ length: 1000 }, (_, i) =>
+      entry(i + 1, "project", { commit: `baseline-${i + 1}` })),
+  };
+  const originalOrder = data.projectEntries.map((e) => e.id);
+  const view = new NotebookView(data, theme, {
+    terminal: { rows: 24 }, requestRender() { renders++; },
+  }, () => {}, async (commit) => {
+    checked.push(commit);
+    return `Saved at ${commit}; check the code.`;
+  });
+  view.handleInput("\x1b[C");
+  renders = 0;
+  const first = view.render(120).join("\n");
+  assert.match(first, /Checking code baseline/);
+  assert.equal(checked.length, 0, "render must not execute Git checks");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.ok(checked.length > 0 && checked.length < 10, "off-screen entries must not trigger Git");
+  assert.equal(renders, checked.length);
+  assert.match(view.render(120).join("\n"), /Saved at baseline-1000/);
+  const before = formatting;
+  view.render(120);
+  assert.ok(formatting - before < 30, "unchanged redraw must reuse formatted rows");
+  const checkedBefore = checked.length;
+  view.handleInput("\x1b[B");
+  view.render(120);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(new Set(checked).size, checked.length, "each entry is checked once per view");
+  assert.ok(checked.length >= checkedBefore);
+  assert.deepEqual(data.projectEntries.map((e) => e.id), originalOrder, "sorting must not mutate input");
+  view.invalidate();
+  const invalidated = formatting;
+  view.render(80);
+  assert.ok(formatting - invalidated > 1000, "resize and theme invalidation refresh rows");
+  view.handleInput("\x1b[F");
+  assert.match(view.render(80).join("\n"), /▸ M1\s/);
+  view.handleInput("\x1b[H");
+  assert.match(view.render(80).join("\n"), /▸ M1000\s/);
+  view.dispose();
+});
+
+test("cached rows update when expanding and collapsing details", () => {
+  const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value } as Theme;
+  const view = new NotebookView({
+    ...base,
+    projectEntries: [entry(1, "project", { body: "Conclusion.\n\nAdditional details only shown when expanded." })],
+  }, theme, { terminal: { rows: 24 }, requestRender() {} }, () => {});
+  view.handleInput("\x1b[C");
+  assert.doesNotMatch(view.render(120).join("\n"), /Additional details/);
+  view.handleInput("\r");
+  assert.match(view.render(120).join("\n"), /Additional details/);
+  view.handleInput("\r");
+  assert.doesNotMatch(view.render(120).join("\n"), /Additional details/);
+  view.dispose();
+});
+
+test("closing the view cancels queued freshness work and late results cannot redraw", async () => {
+  let calls = 0;
+  let renders = 0;
+  let finish: ((warning: string) => void) | undefined;
+  const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value } as Theme;
+  const data = { ...base, handoff: undefined, projectEntries: [entry(1, "project", { commit: "abc" })] };
+  const view = new NotebookView(data, theme, {
+    terminal: { rows: 24 }, requestRender() { renders++; },
+  }, () => {}, () => {
+    calls++;
+    return new Promise((resolve) => { finish = resolve; });
+  });
+  view.render(120);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  view.dispose();
+  finish!("Late warning");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(renders, 0);
+
+  const queued = new NotebookView(data, theme, {
+    terminal: { rows: 24 }, requestRender() { renders++; },
+  }, () => {}, async () => { calls++; return undefined; });
+  queued.render(120);
+  queued.handleInput("q");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+});

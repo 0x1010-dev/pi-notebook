@@ -9,7 +9,7 @@ import { promptNotes } from "./events/prompt.ts";
 import { buildSection } from "./inject.ts";
 import type { Scope } from "./paths.ts";
 import { Session } from "./session.ts";
-import { listAll, recall, ref, saveEntry, updateEntry, writeHandoff } from "./store.ts";
+import { listAll, readHandoff, readManaged, recall, ref, saveEntry, updateEntry, writeHandoff } from "./store.ts";
 
 const root = mkdtempSync(join(tmpdir(), "nb-recall-"));
 after(() => rmSync(root, { recursive: true }));
@@ -86,6 +86,23 @@ test("injected indexes respect the approximate character budget even for oversiz
     const section = buildSection({ ...located, budgetTokens, globalLimit: 20 });
     assert.ok(section.length <= budgetTokens * 4);
   }
+});
+
+test("injection can reuse a complete view snapshot without reading notebook files again", () => {
+  const { located } = fixture();
+  saveEntry(located.scope, "Snapshot memory", "Use the loaded notebook snapshot.");
+  writeHandoff(located.scope, {
+    goal: "Open notebook", status: "Ready", nextSteps: ["Browse"],
+    blockers: [], notes: "", updated: "2026-11-02T12:00:00.000Z",
+  });
+  const input = { ...located, budgetTokens: 1500, globalLimit: 20 };
+  const expected = buildSection(input);
+  const snapshot = {
+    projectEntries: listAll(located.scope), globalEntries: listAll(located.global),
+    handoff: readHandoff(located.scope), conventions: readManaged(located.scope.agentsFile),
+  };
+  rmSync(located.project.root, { recursive: true });
+  assert.equal(buildSection({ ...input, snapshot }), expected);
 });
 
 test("small realistic retrieval evaluation meets recall and irrelevant-injection thresholds", (t) => {

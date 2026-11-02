@@ -88,6 +88,7 @@ function writeEntry(e: Entry): void {
 
 export function listAll(scope: Scope): Entry[] {
   const entries: Entry[] = [];
+  const ids = new Set<number>();
   const dir = join(scope.dir, "memories");
   if (!existsSync(dir)) return [];
   for (const name of readdirSync(dir).sort()) {
@@ -99,8 +100,9 @@ export function listAll(scope: Scope): Entry[] {
     const id = Number(m[1]);
     if (!heading || !heading[1].trim() || !Number.isSafeInteger(id) || id < 1)
       throw new Error(`Invalid memory ${path}: expected a numeric filename and a # title.`);
-    if (entries.some((e) => e.id === id))
+    if (ids.has(id))
       throw new Error(`Duplicate memory ID M${id} in ${scope.dir}.`);
+    ids.add(id);
     entries.push({
       scope: scope.kind, id, path,
       title: heading[1].trim(), body: heading[2].trim(),

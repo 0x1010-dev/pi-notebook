@@ -164,6 +164,11 @@ There is no automatic extraction or verification by another model.
 | `/nb:wrap` | Save worthwhile knowledge and reconcile unfinished work |
 | `/nb:curate` | Verify claims, reconcile contradictions and consolidate current knowledge |
 
+The browser loads memories once per opening and caches formatted rows. Code
+freshness checks run asynchronously for visible entries; “Checking code baseline…”
+is replaced with the result when ready. Checks are shared within the view and
+cancelled on close. Reopen `/nb` to refresh memories and code freshness after edits.
+
 ## Settings
 
 Under `notebook` in `~/.pi/agent/settings.json`:

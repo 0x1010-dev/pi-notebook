@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { headCommit, staleness } from "./git.ts";
+import { createStalenessChecker, headCommit, staleness } from "./git.ts";
 
 function repo(): string {
   const dir = mkdtempSync(join(tmpdir(), "nb-git-"));
@@ -37,4 +37,22 @@ test("staleness tracks described files and commit distance", () => {
   execFileSync("git", ["commit", "-qam", "next"], { cwd: dir, stdio: "ignore" });
   assert.equal(staleness(dir, c), `Saved 1 commit ago (${c}).`);
   assert.match(staleness(dir, "deadbeef")!, /not in this history/);
+});
+
+test("asynchronous freshness matches synchronous checks and caches only within one view", async (t) => {
+  const dir = repo();
+  t.after(() => rmSync(dir, { recursive: true }));
+  const commit = headCommit(dir)!;
+  writeFileSync(join(dir, "a.ts"), "changed");
+  writeFileSync(join(dir, "new.ts"), "untracked");
+  const check = createStalenessChecker(dir);
+  for (const [baseline, files] of [
+    [commit, ["a.ts"]], [commit, ["b.ts"]], [commit, ["new.ts"]],
+    [commit, []], ["deadbeef", []],
+  ] as const) {
+    assert.equal(await check(baseline, [...files]), staleness(dir, baseline, [...files]));
+  }
+  writeFileSync(join(dir, "b.ts"), "changed since opening");
+  assert.equal(await check(commit, ["b.ts"]), undefined);
+  assert.match((await createStalenessChecker(dir)(commit, ["b.ts"]))!, /b\.ts changed/);
 });

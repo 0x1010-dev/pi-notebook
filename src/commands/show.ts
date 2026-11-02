@@ -9,10 +9,13 @@ export function registerShowCommand({ pi, session }: Runtime): void {
     handler: async (_args, ctx) => {
       const located = locate(ctx.cwd);
       const { project, scope, global } = located;
-      const data: ViewData = {
-        ...statusInfo(located, session),
-        preferences: readManaged(global.agentsFile),
+      const snapshot = {
+        ...statusInfo(located),
         conventions: scope ? readManaged(scope.agentsFile) : [],
+      };
+      const data: ViewData = {
+        ...snapshot,
+        preferences: readManaged(global.agentsFile),
         injectedTokens: estimateTokens(
           buildSection({
             project,
@@ -20,6 +23,7 @@ export function registerShowCommand({ pi, session }: Runtime): void {
             global,
             budgetTokens: session.cfg.injectBudgetTokens,
             globalLimit: session.cfg.globalIndexLimit,
+            snapshot,
           }),
         ),
       };
@@ -30,10 +34,15 @@ export function registerShowCommand({ pi, session }: Runtime): void {
         );
         return;
       }
-      await ctx.ui.custom<void>(
-        (tui, theme, _kb, done) =>
-          new NotebookView(data, theme, tui, () => done()),
-      );
+      let view: NotebookView | undefined;
+      try {
+        await ctx.ui.custom<void>(
+          (tui, theme, _kb, done) =>
+            (view = new NotebookView(data, theme, tui, () => done())),
+        );
+      } finally {
+        view?.dispose();
+      }
     },
   });
 }
