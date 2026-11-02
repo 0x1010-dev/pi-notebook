@@ -26,12 +26,16 @@ export function registerToolEvents({ pi, session }: Runtime): void {
   pi.on("tool_result", async (event, ctx) => {
     const warning = session.warnings.get(event.toolCallId);
     session.warnings.delete(event.toolCallId);
-    session.recordToolResult(event.toolName, event.input.command, event.isError);
+    session.recordToolResult(
+      event.toolName,
+      event.input.command,
+      event.isError,
+    );
 
     if (warning && !event.isError) {
       if (ctx.hasUI)
         ctx.ui.notify(
-          "◆ The model changed the pi-notebook section of AGENTS.md",
+          warning,
           "warning",
         );
       return {

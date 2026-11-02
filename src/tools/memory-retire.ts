@@ -8,12 +8,13 @@ export function registerMemoryRetire(rt: Runtime): void {
     name: "memory_retire",
     label: "Notebook",
     description:
-      "Retire notebook decisions, lessons, notes or environment entries that are no longer true or useful and have nothing to replace them. Retired entries leave the index but stay searchable. To correct an entry, update it with memory_save and its ref instead. The user confirms each retirement.",
+      "Archive memories that no longer apply. To correct knowledge, update the existing memory with memory_save instead. Archived memories stay readable by ref but leave ordinary search and recall. The user confirms each retirement.",
     promptSnippet:
-      "memory_retire: retire outdated notebook decisions, lessons or notes (user confirms)",
+      "memory_retire: archive obsolete memories (user confirms)",
     parameters: Type.Object({
       refs: Type.Array(Type.String(), {
-        description: 'Refs of the entries to retire, for example ["D3", "~L1"].',
+        description:
+          'Refs to archive, for example ["M3", "~M1"].',
       }),
       reason: Type.String({
         description: "Why they no longer apply, one line.",
@@ -47,7 +48,8 @@ export function registerMemoryRetire(rt: Runtime): void {
         | { retired: string[]; declined: boolean }
         | undefined;
       if (d?.declined) return textRow(theme.fg("warning", "✗ declined"));
-      if (!d?.retired.length) return textRow(theme.fg("dim", "nothing retired"));
+      if (!d?.retired.length)
+        return textRow(theme.fg("dim", "nothing retired"));
       return textRow(
         `${theme.fg("success", "✓ ")}${theme.fg("muted", "retired")} ${theme.fg("accent", d.retired.join(" "))}`,
       );

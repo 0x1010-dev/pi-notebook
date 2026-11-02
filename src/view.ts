@@ -5,7 +5,7 @@ import {
   visibleWidth,
   wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import { clip } from "./format.ts";
+import { clip, entryPreview, noteLines } from "./format.ts";
 import type { Project, Scope } from "./paths.ts";
 import { type Entry, type Handoff, ref } from "./store.ts";
 import { ago, counts, STALE_MS, type StatusInfo } from "./ui.ts";
@@ -51,8 +51,8 @@ export interface StartupInput {
 /** Notice shown when a session starts in a project with a notebook. */
 export function startupSummary(input: StartupInput): string | undefined {
   const { project, scope, handoff: h, entries, now = Date.now() } = input;
-  const c = counts(entries);
-  if (!h?.goal && c.d + c.l + c.n === 0) return undefined;
+  const active = counts(entries);
+  if (!h?.goal && active === 0) return undefined;
 
   let age = "";
   if (h?.updated) {
@@ -80,13 +80,9 @@ export function startupSummary(input: StartupInput): string | undefined {
       .forEach((b, i) => out.push(row(i === 0 ? "Blocked" : "", `! ${b}`)));
     if (h.blockers.length > 2)
       out.push(row("", `(+${h.blockers.length - 2} more blockers)`));
+    if (h.notes) out.push(row("Notes", h.notes));
   }
-  out.push(
-    row(
-      "Notebook",
-      `${c.d} decisions · ${c.l} lessons · ${c.n} notes · /nb to browse`,
-    ),
-  );
+  out.push(row("Notebook", `${active} active memories · /nb to browse`));
   return out.join("\n");
 }
 
@@ -105,7 +101,6 @@ export interface ViewTui {
 interface Tab {
   id: string;
   label: string;
-  /** Tabs that list entries; others are free-form. */
   entries?: Entry[];
 }
 
@@ -143,12 +138,6 @@ function hang(prefix: string, body: string, width: number): string[] {
 const newestFirst = (a: Entry, b: Entry) =>
   b.date.localeCompare(a.date) || b.id - a.id;
 
-const PROJECT_TABS = [
-  ["decision", "Decisions"],
-  ["lesson", "Lessons"],
-  ["note", "Notes"],
-] as const;
-
 export class NotebookView {
   private tab = 0;
   private offset = 0;
@@ -164,17 +153,17 @@ export class NotebookView {
   ) {}
 
   private tabs(): Tab[] {
-    const { data } = this;
     const tabs: Tab[] = [{ id: "overview", label: "Overview" }];
-    if (data.scope)
-      for (const [kind, label] of PROJECT_TABS)
-        tabs.push({
-          id: kind,
-          label,
-          entries: data.projectEntries.filter((e) => e.kind === kind),
-        });
-    tabs.push({ id: "global", label: "Global", entries: data.globalEntries });
-    tabs.push({ id: "rules", label: "Rules" });
+    if (this.data.scope)
+      tabs.push({
+        id: "memories",
+        label: "Memories",
+        entries: this.data.projectEntries,
+      });
+    tabs.push(
+      { id: "global", label: "Global", entries: this.data.globalEntries },
+      { id: "rules", label: "Rules" },
+    );
     return tabs;
   }
 
@@ -289,9 +278,7 @@ export class NotebookView {
     const { th } = this;
     const items = this.listed(tab);
     if (items.length === 0) {
-      const hint =
-        tab.id === "note" ? ` ${th.fg("dim", "try")} ${th.fg("accent", "/nb:learn")}` : "";
-      return { lines: [`    ${th.fg("dim", "none yet")}${hint}`] };
+      return { lines: [`    ${th.fg("dim", "none yet")}`] };
     }
     this.selected = Math.min(this.selected, items.length - 1);
     const lines: string[] = [];
@@ -301,7 +288,7 @@ export class NotebookView {
       const active = e.status === "active";
       const state = active
         ? ""
-        : ` [${e.status === "retired" && e.retiredReason ? `retired: ${e.retiredReason}` : e.status}]`;
+        : ` [retired${e.retiredReason ? `: ${e.retiredReason}` : ""}]`;
       const mark = i === this.selected ? th.fg("accent", "▸") : " ";
       lines.push(
         ...hang(
@@ -310,6 +297,10 @@ export class NotebookView {
           width,
         ),
       );
+      lines.push(...hang("        ", th.fg("muted", entryPreview(e)), width));
+      lines.push(...hang("        ", th.fg("dim", `Path: ${e.path}`), width));
+      for (const note of noteLines(this.data.project?.root ?? process.cwd(), e))
+        lines.push(...hang("        ", th.fg("dim", note), width));
       if (this.open.has(e.path)) lines.push(...this.detail(e, width));
       if (i === this.selected) anchor = [start, lines.length - 1];
     });
@@ -320,8 +311,6 @@ export class NotebookView {
     const { th } = this;
     const pad = "        ";
     const out: string[] = [];
-    if (e.kind === "note" && e.files?.length)
-      out.push(...hang(pad, th.fg("dim", `Files: ${e.files.join(", ")}`), width));
     for (const para of (e.body.trim() || "(no details)").split("\n"))
       out.push(...(para.trim() ? hang(pad, th.fg("muted", para), width) : [""]));
     out.push("");
@@ -382,44 +371,49 @@ export class NotebookView {
             ),
           ),
         );
+        if (h.notes) lines.push(...field("notes", h.notes));
       }
       lines.push("");
 
-      for (const [kind, label] of PROJECT_TABS) {
-        const all = data.projectEntries.filter((e) => e.kind === kind);
-        const active = all.filter((e) => e.status === "active").sort(newestFirst);
-        const inactive = all.length - active.length;
-        lines.push(
-          heading(th, label, `${active.length} active${inactive ? ` · ${inactive} retired or superseded` : ""}`),
-        );
-        for (const e of active.slice(0, 3))
-          lines.push(
-            ...hang(
-              `    ${th.fg("accent", ref(e).padEnd(5))} `,
-              th.fg("text", e.title),
-              width,
-            ),
-          );
-        if (active.length > 3)
-          lines.push(`    ${th.fg("dim", `… ${active.length - 3} more in the ${label} tab`)}`);
-        if (active.length === 0)
-          lines.push(
-            `    ${th.fg("dim", "none yet")}${kind === "note" ? ` ${th.fg("dim", "try")} ${th.fg("accent", "/nb:learn")}` : ""}`,
-          );
-        lines.push("");
-      }
+      const active = data.projectEntries
+        .filter((e) => e.status === "active")
+        .sort(newestFirst);
+      lines.push(heading(th, "Memories", `${active.length} active`));
+      this.previewEntries(lines, active.slice(0, 3), width);
+      if (active.length > 3)
+        lines.push(`    ${th.fg("dim", `… ${active.length - 3} more in Memories`)}`);
+      if (active.length === 0) lines.push(`    ${th.fg("dim", "none yet")}`);
+      lines.push("");
     }
 
-    const g = counts(data.globalEntries);
+    const global = data.globalEntries
+      .filter((e) => e.status === "active")
+      .sort(newestFirst);
+    lines.push(heading(th, "Global", `${global.length} active`));
+    this.previewEntries(lines, global.slice(0, 2), width);
+    if (global.length > 2)
+      lines.push(`    ${th.fg("dim", `… ${global.length - 2} more in Global`)}`);
+    if (global.length === 0) lines.push(`    ${th.fg("dim", "none yet")}`);
     lines.push(
-      heading(
-        th,
-        "Global",
-        `${g.l} environment · ${g.d} decisions · ${data.preferences.length} preferences`,
-      ),
       "",
       `  ${th.fg("dim", "injected")} ${th.fg("muted", `≈${data.injectedTokens} tokens/turn`)}`,
     );
     return { lines };
+  }
+
+  private previewEntries(lines: string[], entries: Entry[], width: number): void {
+    const { th, data } = this;
+    for (const e of entries) {
+      lines.push(
+        ...hang(
+          `    ${th.fg("accent", ref(e).padEnd(5))} `,
+          th.fg("text", e.title),
+          width,
+        ),
+        ...hang("        ", th.fg("muted", entryPreview(e)), width),
+      );
+      for (const note of noteLines(data.project?.root ?? process.cwd(), e))
+        lines.push(...hang("        ", th.fg("dim", note), width));
+    }
   }
 }

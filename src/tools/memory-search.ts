@@ -11,6 +11,8 @@ import {
   parseRef,
   readHandoff,
   searchEntries,
+  preview,
+  refreshIndex,
 } from "../store.ts";
 import { callRow, text, textRow } from "./shared.ts";
 
@@ -46,7 +48,7 @@ function readRefs(
   const missing: string[] = [];
   parsed.forEach((r, i) => {
     const s = r!.global ? global : scope;
-    const e = s ? getEntry(s, r!.kind, r!.id) : undefined;
+    const e = s ? getEntry(s, r!.id) : undefined;
     if (e) found.push(e);
     else missing.push(words[i]);
   });
@@ -62,29 +64,35 @@ export function registerMemorySearch(rt: Runtime): void {
     name: "memory_search",
     label: "Notebook",
     description:
-      'Search the notebook or read the project handoff. query is one of: keywords to search; refs like "D3 ~L1 N2" to read entries in full; "*" to list every entry; "handoff" to read where project work stands. Notes read in full say when their code changed since they were saved.',
+      'Search durable knowledge or read the current handoff. Use keywords (including file paths), #tags, refs like "M3 ~M1" for full memories, "*" to browse, or "handoff". Retired memories are hidden unless include_retired is true or requested by ref.',
     promptSnippet:
       "memory_search: search or list the notebook, read entries by ref, or read the project handoff",
     parameters: Type.Object({
       query: Type.String({
-        description: 'Keywords, refs like "D3 ~L1", "*", or "handoff"',
+        description: 'Keywords, #tags, file paths, refs like "M3 ~M1", "*", or "handoff"',
       }),
       limit: Type.Optional(
-        Type.Number({ description: "Max keyword results, default 8" }),
+        Type.Integer({ minimum: 1, maximum: 100, description: "Max keyword results, default 8" }),
       ),
+      include_retired: Type.Optional(Type.Boolean({ description: "Include archived memories in search and listings, default false." })),
     }),
 
     async execute(_id, p, _signal, _onUpdate, ctx): Promise<SearchOutput> {
       const { scope, global } = locate(ctx.cwd);
+      if (scope) refreshIndex(scope);
+      refreshIndex(global);
       const scopes = scope ? [scope, global] : [global];
-      const handoff: Handoff | undefined = scope ? readHandoff(scope) : undefined;
+      const handoff: Handoff | undefined = scope
+        ? readHandoff(scope)
+        : undefined;
       const handoffRefs = handoff ? [`handoff ${handoff.goal}`] : [];
       const q = parseQuery(p.query);
 
       if (q.mode === "all") {
-        const all = scopes.flatMap((s) => listAll(s));
+        const all = scopes.flatMap((s) => listAll(s))
+          .filter((e) => p.include_retired || e.status === "active");
         const list = all.length
-          ? all.map(entryHead).join("\n")
+          ? all.map((e) => `${entryHead(e)}\n  ${e.tags.map((t) => `#${t}`).join(" ")}\n  ${preview(e)}`).join("\n\n")
           : "The notebook is empty.";
         return {
           content: text(
@@ -99,7 +107,9 @@ export function registerMemorySearch(rt: Runtime): void {
         if (handoff) rt.session.handoffShown = true;
         return {
           content: text(
-            handoff ? formatHandoff(handoff) : "No handoff for this project yet.",
+            handoff
+              ? formatHandoff(handoff)
+              : "No handoff for this project yet.",
           ),
           details: { refs: handoffRefs },
         };
@@ -109,9 +119,11 @@ export function registerMemorySearch(rt: Runtime): void {
         return { content: text(read.body), details: { refs: read.refs } };
       }
 
-      const hits = searchEntries(scopes, q.words.join(" "), p.limit ?? 8);
+      const hits = searchEntries(scopes, q.words.join(" "), p.limit ?? 8, {
+        includeRetired: p.include_retired,
+      });
       const body = hits.length
-        ? `${hits.map((hit) => `${entryHead(hit.entry)}\n  ${hit.snippet}`).join("\n")}\n\nPass refs to read entries in full.`
+        ? `${hits.map((hit) => [entryHead(hit.entry), ...noteLines(ctx.cwd, hit.entry), hit.snippet, `Matched: ${hit.matches.join(", ")}`].join("\n")).join("\n\n")}\n\nPass refs to read entries in full.`
         : 'No matches. Try other keywords, or "*" to list every entry.';
       return {
         content: text(body),

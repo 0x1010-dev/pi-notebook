@@ -1,10 +1,5 @@
 import { loadConfig } from "./config.ts";
-import {
-  COMMIT_RE,
-  detectNudge,
-  freshSignals,
-  type NudgeKind,
-} from "./signals.ts";
+import { COMMIT_RE, type NudgeKind } from "./signals.ts";
 
 export interface ContextFile {
   path: string;
@@ -20,7 +15,6 @@ export interface Snapshot {
 
 export interface TurnInput {
   contextPercent: number;
-  handoffMissing: boolean;
 }
 
 /** Everything that changes while a session runs. */
@@ -29,92 +23,72 @@ export class Session {
   pendingNudge: NudgeKind | undefined;
   suppressNudgeOnce = false;
   handoffShown = false;
-  recalled = new Set<string>();
+  recalled = new Map<string, string>();
   snapshot: Snapshot | undefined;
+  snapshotFingerprint: string | undefined;
   /** Guard warnings keyed by tool call id, appended to that call's result. */
   readonly warnings = new Map<string, string>();
 
-  private signals = freshSignals();
-  private fired = new Set<NudgeKind>();
-  private turnsSinceSave = 0;
+  private committed = false;
   private turnsSinceNudge = 0;
-  private errorsSinceSuccess = 0;
   private contextNudged = false;
 
   /** Start of a session: reload config and clear all per-session state. */
   reset(): void {
     this.cfg = loadConfig();
     this.invalidate();
-    this.recalled = new Set();
+    this.recalled = new Map();
     this.handoffShown = false;
     this.pendingNudge = undefined;
-    this.signals = freshSignals();
-    this.fired = new Set();
-    this.turnsSinceSave = 0;
+    this.suppressNudgeOnce = false;
+    this.warnings.clear();
+    this.committed = false;
     this.turnsSinceNudge = this.cfg.nudgeCooldownTurns;
-    this.errorsSinceSuccess = 0;
     this.contextNudged = false;
   }
 
   /** Compaction drops earlier context, so re-inject and allow nudges again. */
   onCompact(): void {
     this.invalidate();
+    this.recalled.clear();
+    this.pendingNudge = undefined;
     this.contextNudged = false;
-    this.fired.delete("context");
     this.handoffShown = false;
   }
 
   invalidate(): void {
     this.snapshot = undefined;
+    this.snapshotFingerprint = undefined;
   }
 
   /** Something durable was written, so earlier nudges are satisfied. */
   markSaved(): void {
-    this.turnsSinceSave = 0;
-    this.fired = new Set();
-    this.signals = freshSignals();
+    this.committed = false;
+    this.pendingNudge = undefined;
+    this.invalidate();
   }
 
   recordToolResult(toolName: string, command: unknown, isError: boolean): void {
-    if (toolName === "bash" && !isError && COMMIT_RE.test(String(command ?? "")))
-      this.signals.committed = true;
-    if (isError) {
-      this.errorsSinceSuccess++;
-      return;
-    }
-    if (this.errorsSinceSuccess >= 2) this.signals.recovered = true;
-    this.errorsSinceSuccess = 0;
+    if (
+      toolName === "bash" &&
+      !isError &&
+      COMMIT_RE.test(String(command ?? ""))
+    )
+      this.committed = true;
   }
 
   /** Advances turn counters and returns the nudge to send, updating state for it. */
   endTurn(input: TurnInput): NudgeKind | undefined {
-    this.turnsSinceSave++;
     this.turnsSinceNudge++;
     const { cfg } = this;
-    const kind = detectNudge(
-      {
-        ...this.signals,
-        contextHigh:
-          cfg.wrapAtContextPercent > 0 &&
-          !this.contextNudged &&
-          input.contextPercent >= cfg.wrapAtContextPercent,
-        handoffMissing: input.handoffMissing,
-        turnsSinceSave: this.turnsSinceSave,
-      },
-      {
-        checkpointTurns: cfg.checkpointTurns,
-        handoffAfterTurns: cfg.handoffAfterTurns,
-        cooldownTurns: cfg.nudgeCooldownTurns,
-      },
-      this.fired,
-      this.turnsSinceNudge,
-    );
+    const high = cfg.wrapAtContextPercent > 0 && !this.contextNudged &&
+      input.contextPercent >= cfg.wrapAtContextPercent;
+    const kind = high ? "context" : this.committed &&
+      this.turnsSinceNudge >= cfg.nudgeCooldownTurns ? "milestone" : undefined;
     if (!kind) return undefined;
-    this.fired.add(kind);
     this.turnsSinceNudge = 0;
     if (kind === "context") this.contextNudged = true;
-    if (kind === "milestone") this.signals.committed = false;
-    if (kind === "lesson") this.signals.recovered = false;
+    if (kind === "milestone") this.committed = false;
     return kind;
   }
 }

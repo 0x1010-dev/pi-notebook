@@ -1,5 +1,3 @@
-import { oneLine } from "./store.ts";
-
 const SECRET_PATTERNS: [string, RegExp][] = [
   ["private key", /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
   ["AWS access key", /\b(AKIA|ASIA)[0-9A-Z]{16}\b/],
@@ -24,16 +22,4 @@ export function findSecret(text: string): string | undefined {
 
 export function secretError(kind: string): string {
   return `Not saved: the text looks like it contains a ${kind}. Notebook entries may be committed to git and are shown to every future session. Replace the value with a placeholder such as <REDACTED> or $ENV_VAR and try again.`;
-}
-
-export const TITLE_MAX = 120;
-export const BODY_MAX = 8000;
-
-/** Shorten to TITLE_MAX at a word boundary. */
-export function clipTitle(title: string): { title: string; clipped: boolean } {
-  const clean = oneLine(title);
-  if (clean.length <= TITLE_MAX) return { title: clean, clipped: false };
-  const space = clean.lastIndexOf(" ", TITLE_MAX - 1);
-  const cut = space > 0 ? clean.slice(0, space) : clean.slice(0, TITLE_MAX - 1);
-  return { title: `${cut.trimEnd()}…`, clipped: true };
 }

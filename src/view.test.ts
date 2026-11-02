@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Entry, Handoff } from "./store.ts";
+import { counts } from "./ui.ts";
 import {
   clampScroll,
   ensureVisible,
+  NotebookView,
   startupSummary,
   visibleWindow,
+  type ViewData,
 } from "./view.ts";
 
 test("clampScroll keeps the offset inside the content", () => {
@@ -30,15 +34,20 @@ test("ensureVisible scrolls the least needed", () => {
   assert.equal(ensureVisible(0, 8, 30, 5), 8);
 });
 
-const entry = (kind: Entry["kind"], id: number): Entry => ({
-  scope: "project",
-  kind,
+const entry = (
+  id: number,
+  scope: Entry["scope"] = "project",
+  over: Partial<Entry> = {},
+): Entry => ({
+  scope,
   id,
-  title: `t${id}`,
+  title: `Memory ${id}`,
   status: "active",
   date: "2026-01-01",
-  body: "",
-  path: `/x/${kind}${id}`,
+  body: `Conclusion ${id}. Supporting details follow.`,
+  path: `/x/memory-${id}.md`,
+  tags: ["testing", "design"],
+  ...over,
 });
 
 const handoff = (over: Partial<Handoff> = {}): Handoff => ({
@@ -46,37 +55,103 @@ const handoff = (over: Partial<Handoff> = {}): Handoff => ({
   status: "Tests failing",
   nextSteps: ["Fix cookie test", "Docs"],
   blockers: ["API key", "Review", "Legal"],
-  notes: "",
+  notes: "Coordinate the release",
   updated: "2026-10-27T12:00:00.000Z",
   ...over,
 });
 
-const base = {
+const base: ViewData = {
   project: { root: "/r", name: "app" },
-  scope: { kind: "project" as const, dir: "/r/.pi", agentsFile: "/r/AGENTS.md", mode: "repo" as const },
-  entries: [entry("decision", 1), entry("lesson", 1), entry("lesson", 2), entry("note", 1)],
-  now: Date.parse("2026-10-27T14:00:00.000Z"),
+  scope: {
+    kind: "project",
+    dir: "/r/.pi",
+    agentsFile: "/r/AGENTS.md",
+    mode: "repo",
+  },
+  projectEntries: [
+    entry(1, "project", { files: ["src/auth.ts"] }),
+    entry(2, "project", { status: "retired", retiredReason: "Replaced" }),
+  ],
+  globalEntries: [entry(3, "global")],
+  handoff: handoff(),
+  preferences: ["Prefer concise diffs"],
+  conventions: ["Use existing tests"],
+  injectedTokens: 42,
 };
 
-test("startup summary shows handoff and counts", () => {
-  const s = startupSummary({ ...base, handoff: handoff() })!.split("\n");
+test("counts returns the number of active entries", () => {
+  assert.equal(counts(base.projectEntries), 1);
+  assert.equal(counts([]), 0);
+});
+
+test("startup summary shows handoff and active counts", () => {
+  const s = startupSummary({
+    project: base.project!,
+    scope: base.scope!,
+    handoff: handoff(),
+    entries: base.projectEntries,
+    now: Date.parse("2026-10-27T14:00:00.000Z"),
+  })!.split("\n");
   assert.equal(s[0], "◆ pi-notebook · app (repo) · handoff updated 2h ago");
   assert.ok(s.some((l) => /Goal\s+Ship auth/.test(l)));
   assert.ok(s.some((l) => l.includes("Fix cookie test (+1 more)")));
   assert.ok(s.some((l) => l.includes("! API key")));
   assert.ok(s.some((l) => l.includes("(+1 more blockers)")));
-  assert.ok(s.at(-1)!.includes("1 decisions · 2 lessons · 1 notes · /nb to browse"));
+  assert.ok(s.some((l) => l.includes("Coordinate the release")));
+  assert.ok(s.at(-1)!.includes("1 active memories · /nb to browse"));
 });
 
 test("startup summary warns about a stale handoff", () => {
   const s = startupSummary({
-    ...base,
+    project: base.project!,
+    scope: base.scope!,
     handoff: handoff({ updated: "2026-10-20T12:00:00.000Z" }),
+    entries: base.projectEntries,
+    now: Date.parse("2026-10-27T12:00:00.000Z"),
   })!;
   assert.ok(s.split("\n")[0].includes("⚠ handoff 7d old"));
 });
 
-test("startup summary without a handoff or entries is skipped", () => {
-  assert.equal(startupSummary({ ...base, entries: [] }), undefined);
-  assert.ok(startupSummary({ ...base })!.includes("No handoff yet"));
+test("startup summary without a handoff or active entries is skipped", () => {
+  assert.equal(
+    startupSummary({
+      project: base.project!,
+      scope: base.scope!,
+      entries: base.projectEntries.map((e) => ({ ...e, status: "retired" })),
+    }),
+    undefined,
+  );
+  assert.ok(
+    startupSummary({
+      project: base.project!,
+      scope: base.scope!,
+      entries: base.projectEntries,
+    })!.includes("No handoff yet"),
+  );
+});
+
+test("notebook renders simplified tabs and entry context", () => {
+  const theme = {
+    fg: (_color: string, value: string) => value,
+    bold: (value: string) => value,
+  } as Theme;
+  const tui = { terminal: { rows: 24 }, requestRender() {} };
+  const view = new NotebookView(base, theme, tui, () => {});
+
+  const overview = view.render(120).join("\n");
+  assert.ok(overview.includes("Overview"));
+  assert.ok(overview.includes("Memories"));
+  assert.ok(overview.includes("Global"));
+  assert.ok(overview.includes("Rules"));
+  assert.ok(overview.includes("Coordinate the release"));
+  assert.ok(overview.includes("Conclusion 1."));
+
+  view.handleInput("\x1b[C");
+  const memories = view.render(120).join("\n");
+  assert.ok(memories.includes("[Memories 1]"));
+  assert.ok(memories.includes("Memory 1"));
+  assert.ok(memories.includes("Conclusion 1."));
+  assert.ok(memories.includes("#testing #design"));
+  assert.ok(memories.includes("/x/memory-1.md"));
+  assert.ok(memories.includes("Files: src/auth.ts"));
 });

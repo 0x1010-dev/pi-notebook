@@ -7,7 +7,6 @@ import {
   FILES_REASON,
   guardToolCall,
   MANAGED_WARNING,
-  SHELL_REASON,
 } from "./guard.ts";
 import { appendManaged } from "./store.ts";
 
@@ -15,35 +14,29 @@ const home = "/Users/me";
 const roots = [`${home}/.pi/agent/pi-notebook`];
 const base = { cwd: "/repo", roots, agentsFiles: [], home };
 const BLOCK = { action: "block", reason: FILES_REASON };
-const SHELL_BLOCK = { action: "block", reason: SHELL_REASON };
 const WARN = { action: "warn", reason: MANAGED_WARNING };
 
-test("blocks file tools inside notebooks", () => {
+test("allows notebook reading and browsing but routes model file writes through tools", () => {
   const call = (toolName: string, path: string) =>
     guardToolCall({ ...base, toolName, input: { path } });
-  assert.deepEqual(call("read", ".pi/notebook/decisions/0001-x.md"), BLOCK);
-  assert.deepEqual(call("ls", "/repo/.pi/notebook"), BLOCK);
+  assert.equal(call("read", ".pi/notebook/memories/0001-x.md"), undefined);
+  assert.equal(call("ls", "/repo/.pi/notebook"), undefined);
   assert.deepEqual(call("edit", "/other/.pi/notebook/handoff.md"), BLOCK);
   assert.deepEqual(
-    call("write", "~/.pi/agent/pi-notebook/global/lessons/0001-x.md"),
+    call("write", "~/.pi/agent/pi-notebook/global/memories/0001-x.md"),
     BLOCK,
   );
-  assert.deepEqual(call("grep", `${home}/.pi/agent/pi-notebook`), BLOCK);
+  assert.equal(call("grep", `${home}/.pi/agent/pi-notebook`), undefined);
   assert.equal(call("read", "src/notebook.ts"), undefined);
   assert.equal(call("read", ".pi/settings.json"), undefined);
   assert.equal(call("read", "/Code/pi-notebook/src/index.ts"), undefined);
 });
 
-test("blocks shell commands touching notebooks", () => {
+test("shell reading and browsing do not trigger notebook guard warnings", () => {
   const bash = (command: string) =>
     guardToolCall({ ...base, toolName: "bash", input: { command } });
-  assert.deepEqual(bash("cat .pi/notebook/handoff.md"), SHELL_BLOCK);
-  assert.deepEqual(bash("rm -rf ~/.pi/agent/pi-notebook/global"), SHELL_BLOCK);
-  assert.deepEqual(bash(`ls ${home}/.pi/agent/pi-notebook`), SHELL_BLOCK);
-  assert.deepEqual(
-    bash("sed -i '' x \"/repo/.pi/notebook/lessons/a.md\""),
-    SHELL_BLOCK,
-  );
+  assert.equal(bash("cat .pi/notebook/handoff.md"), undefined);
+  assert.equal(bash(`ls ${home}/.pi/agent/pi-notebook`), undefined);
   assert.equal(bash("cd ~/Code/Personal/pi-notebook && npm test"), undefined);
   assert.equal(bash("ls .pi/skills"), undefined);
 });

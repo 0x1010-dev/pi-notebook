@@ -31,6 +31,8 @@ test("staleness tracks described files and commit distance", () => {
   writeFileSync(join(dir, "a.ts"), "changed");
   assert.match(staleness(dir, c, ["a.ts"])!, /May be outdated: a\.ts changed/);
   assert.equal(staleness(dir, c, ["b.ts"]), undefined);
+  writeFileSync(join(dir, "new.ts"), "new, untracked source");
+  assert.match(staleness(dir, c, ["new.ts"])!, /May be outdated: new\.ts changed/);
 
   execFileSync("git", ["commit", "-qam", "next"], { cwd: dir, stdio: "ignore" });
   assert.equal(staleness(dir, c), `Saved 1 commit ago (${c}).`);

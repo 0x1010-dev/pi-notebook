@@ -4,20 +4,17 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { MANAGED_END, MANAGED_START } from "./store.ts";
 
 export const FILES_REASON =
-  'Notebook files are managed by pi-notebook and cannot be read, listed or edited directly. Use memory_search (pass refs like "D3 L1" for full entries, "*" to list all, or "handoff" for the project handoff), memory_save, or handoff_update.';
-
-export const SHELL_REASON = `${FILES_REASON} The entire command was blocked, so rerun any other parts of it without the notebook path.`;
+  'Use memory_save, memory_retire or handoff_update for model writes to the notebook. Reading and browsing notebook files is allowed; humans can edit memory files freely.';
 
 export const MANAGED_WARNING =
-  "Note: this change touched the pi-notebook section of AGENTS.md. That section is maintained by the extension; prefer memory_save (kind preference or convention) for additions there. If the change was intentional, carry on.";
+  "Note: this change touched the pi-notebook section of AGENTS.md. Prefer memory_save with kind rule for user-approved additions there. If the change was intentional, carry on.";
 
 export type GuardVerdict =
   | { action: "block"; reason: string }
   | { action: "warn"; reason: string };
 
-const FILE_TOOLS = new Set(["read", "edit", "write", "grep", "find", "ls"]);
+const FILE_TOOLS = new Set(["edit", "write"]);
 const NOTEBOOK_SEGMENT = /(^|\/)\.pi\/(notebook|agent\/pi-notebook)(\/|$)/;
-const NOTEBOOK_IN_SHELL = /(^|[\s"'=/])\.pi\/(notebook|agent\/pi-notebook)\b/;
 
 export interface GuardInput {
   toolName: string;
@@ -61,7 +58,7 @@ function editTouchesBlock(edits: unknown, block: string): boolean {
   });
 }
 
-/** Block notebook file access; warn on changes to the managed AGENTS.md section. */
+/** Keep model file writes on the tool path without restricting ordinary reading. */
 export function guardToolCall(g: GuardInput): GuardVerdict | undefined {
   const home = g.home ?? homedir();
   const block = { action: "block", reason: FILES_REASON } as const;
@@ -88,16 +85,5 @@ export function guardToolCall(g: GuardInput): GuardVerdict | undefined {
       return warn;
   }
 
-  if (g.toolName === "bash" && typeof g.input.command === "string") {
-    const cmd = g.input.command;
-    const tilde = (r: string) =>
-      r.startsWith(home) ? `~${r.slice(home.length)}` : r;
-    if (
-      NOTEBOOK_IN_SHELL.test(cmd) ||
-      g.roots.some((r) => cmd.includes(r) || cmd.includes(tilde(r)))
-    ) {
-      return { action: "block", reason: SHELL_REASON };
-    }
-  }
   return undefined;
 }

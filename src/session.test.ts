@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { test } from "node:test";
 import { Session } from "./session.ts";
 
 // Config loads from here, so the user's real settings.json cannot affect the tests.
@@ -30,12 +30,12 @@ test("failed commits do not count", () => {
   assert.equal(s.endTurn(idle), undefined);
 });
 
-test("two errors then a success raise a lesson nudge", () => {
+test("tool retries do not manufacture a memory-writing obligation", () => {
   const s = session();
   s.recordToolResult("bash", "a", true);
   s.recordToolResult("bash", "a", true);
   s.recordToolResult("bash", "a", false);
-  assert.equal(s.endTurn(idle), "lesson");
+  assert.equal(s.endTurn(idle), undefined);
 });
 
 test("context nudge fires once until compaction", () => {
@@ -57,12 +57,21 @@ test("saving resets nudge counters", () => {
 test("reset clears per-session state", () => {
   const s = session();
   s.handoffShown = true;
-  s.recalled.add("D1");
-  s.pendingNudge = "lesson";
+  s.recalled.set("M1", "revision");
+  s.pendingNudge = "milestone";
   s.snapshot = { section: "x", files: [] };
   s.reset();
   assert.equal(s.handoffShown, false);
   assert.equal(s.recalled.size, 0);
   assert.equal(s.pendingNudge, undefined);
   assert.equal(s.snapshot, undefined);
+});
+
+test("compaction resets recalled revisions so dropped memories can return", () => {
+  const s = session();
+  s.recalled.set("M1", "revision");
+  s.handoffShown = true;
+  s.onCompact();
+  assert.equal(s.recalled.size, 0);
+  assert.equal(s.handoffShown, false);
 });

@@ -1,46 +1,42 @@
+const ADMISSION =
+  "Keep only knowledge that changes a future action, prevents a likely mistake, or avoids costly rediscovery. Skip what existing docs already explain. Saving nothing is fine.";
+const CURRENT =
+  "Keep each memory a complete current account of one coherent topic, not a changelog. Update an existing memory by ref when appropriate. When correcting a claim, reconcile related active memories that repeat it; do not retire an entire mixed-topic entry and lose still-current knowledge.";
+const WRITING =
+  "Put the useful conclusion first, followed by concise reasons and evidence. Distinguish observed facts and user decisions from hypotheses. Optional tags and related files help retrieval; reuse existing tags where useful.";
+
 export function wrapPrompt(inProject: boolean): string {
-  const steps = [
-    'For each decision made between real alternatives, call memory_save with kind "decision" (context, choice, consequences in the body).',
-    'For each non-obvious problem solved that could recur, call memory_save with kind "lesson" (symptom, cause, fix). Use kind "environment" only when the cause is my machine or accounts, not this project.',
-    'If you learned how parts of this project\'s code work that are not recorded yet and would save a future session several file reads, call memory_save with kind "note" and files set to the paths it describes.',
-    'If I stated lasting preferences or repo rules that are not recorded yet, call memory_save with kind "preference" or "convention".',
-  ];
-  if (inProject)
-    steps.push(
-      "Call handoff_update with the current goal, status, next steps and blockers.",
-    );
   return [
     "Wrap up this session for pi-notebook.",
-    ...steps.map((s, i) => `${i + 1}. ${s}`),
-    "If an entry in the index already covers something, update it by passing its ref to memory_save instead of adding a new one.",
-    "Skip anything trivial or already recorded. Then reply with a short list of what you saved.",
+    ADMISSION, CURRENT, WRITING,
+    "Use memory_save for worthwhile durable knowledge. Lasting rules require explicit user intent, not an inferred coding preference.",
+    ...(inProject ? [
+      "Update the handoff to a consistent snapshot of unfinished work. Reconcile goal, status, next actions and blockers; clear completed or obsolete items. Do not copy the session log into it.",
+    ] : []),
+    "Reply briefly with what changed, or say nothing needed saving.",
   ].join("\n");
 }
 
 export function learnPrompt(topic: string): string {
   return [
-    "Study this repository and record what a future session should know, using pi-notebook.",
-    topic
-      ? `Focus only on: ${topic}`
-      : "Survey the whole repository: architecture, module layout, recurring code patterns and styling.",
-    '1. Call memory_search with query "*" to see what the notebook already holds. Do not repeat it; read existing notes by ref and update those that turn out to be wrong (memory_save with their ref).',
-    "2. Explore with bounded effort: README, manifest and config files, entry points, and a few representative files per area. Do not read every file.",
-    "3. Skip anything AGENTS.md, ARCHITECTURE.md or similar docs already cover.",
-    '4. For each thing a future session would otherwise need several file reads to work out, call memory_save with kind "note": title "area: summary", body with the details and key paths, files set to the paths it describes. Aim for a handful of notes, at most about 10.',
-    '5. For rules the code consistently follows (naming, exports, error handling, formatting) that are not recorded yet, call memory_save with kind "convention", one rule per call. I will confirm each.',
-    "Then reply with a short list of what you saved.",
+    "Look for valuable knowledge gaps in this repository, not a comprehensive notebook.",
+    topic ? `Focus on: ${topic}` : "Focus on hidden constraints, important rationale and non-obvious cross-file dependencies.",
+    'Browse existing memories with memory_search "*" and consult project documentation before exploring relevant code with bounded effort.',
+    ADMISSION, CURRENT, WRITING,
+    "Use memory_save only for worthwhile gaps. Do not invent rules from incidental patterns or aim for a quota of memories.",
+    "Reply briefly with what was learned and saved, or why no new memories were needed.",
   ].join("\n");
 }
 
-export function curatePrompt(skillDirs: string[]): string {
+export function curatePrompt(): string {
   return [
-    "Curate the pi-notebook using only the notebook tools.",
-    '1. Call memory_search with query "*" to list every entry, then read related entries in full by passing their refs (for example "D1 D4").',
-    "2. Merge duplicates: update the clearest entry with memory_save and its ref so it covers both, then retire the others with memory_retire.",
-    "3. For entries that are no longer true, update them with memory_save and their ref. If nothing should replace them, retire them with memory_retire.",
-    "4. Read notes in full by ref. Those marked as possibly outdated: check the code, then update them by ref, retire them, or leave them if still accurate.",
-    `5. If three or more lessons describe the same procedure, propose a skill (in ${skillDirs.join(" or ")}) and ask me before writing it.`,
-    "6. Do not try to edit or delete notebook files; those calls are blocked.",
-    "Reply with a short summary of the changes.",
+    "Curate the notebook into useful current knowledge, not a historical record.",
+    'Browse memory_search "*", then read related memories by ref and verify their claims against current code, docs or other evidence.',
+    CURRENT, ADMISSION, WRITING,
+    "Resolve contradictions across active memories. Remove incorrect explanations rather than preserving them inside a corrected lesson. Do not claim verification you did not perform.",
+    "Merge overlapping topics by updating the clearest memory into a complete current account before retiring redundant entries. Split independently changing topics when needed.",
+    "Keep rules short and limited to explicit user instructions. Flag questionable rules for the user rather than adding more.",
+    "If the handoff is inconsistent, reconcile it against what is actually known; do not guess progress.",
+    "Use notebook tools for changes. Reply with a short summary and any unresolved uncertainty.",
   ].join("\n");
 }

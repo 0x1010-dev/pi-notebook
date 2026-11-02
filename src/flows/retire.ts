@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { locate, type Runtime } from "../runtime.ts";
 import type { Scope } from "../paths.ts";
+import { locate, type Runtime } from "../runtime.ts";
 import {
   type Entry,
   getEntry,
@@ -9,6 +9,7 @@ import {
   ref,
   retireEntry,
 } from "../store.ts";
+import { findSecret, secretError } from "../validate.ts";
 
 export interface RetireResult {
   retired: string[];
@@ -23,6 +24,8 @@ export async function retireRefs(
   words: string[],
   reason: string,
 ): Promise<RetireResult> {
+  const secret = findSecret(reason);
+  if (secret) throw new Error(secretError(secret));
   const { scope, global } = locate(ctx.cwd);
   const found: { scope: Scope; entry: Entry }[] = [];
   const missing: string[] = [];
@@ -30,7 +33,7 @@ export async function retireRefs(
   for (const w of words) {
     const r = parseRef(w);
     const s = r?.global ? global : scope;
-    const e = r && s ? getEntry(s, r.kind, r.id) : undefined;
+    const e = r && s ? getEntry(s, r.id) : undefined;
     if (!e || !s) missing.push(w);
     else if (e.status !== "active") inactive.push(`${ref(e)} (${e.status})`);
     else if (!found.some((f) => f.entry.path === e.path))
@@ -59,7 +62,7 @@ export async function retireRefs(
       };
   }
   for (const { scope: s, entry } of found)
-    retireEntry(s, entry.kind, entry.id, reason);
+    retireEntry(s, entry.id, reason);
   rt.session.invalidate();
   rt.refreshStatus(ctx);
   const retired = found.map(({ entry }) => ref(entry));

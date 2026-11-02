@@ -1,14 +1,15 @@
 import { NUDGE_TYPE } from "../constants.ts";
-import { locate, type Runtime } from "../runtime.ts";
+import { type Runtime } from "../runtime.ts";
 import { nudgeText } from "../signals.ts";
-import { readHandoff } from "../store.ts";
 
-export function registerTurnEvents({ pi, session, refreshStatus }: Runtime): void {
+export function registerTurnEvents({
+  pi,
+  session,
+  refreshStatus,
+}: Runtime): void {
   pi.on("turn_end", async (event, ctx) => {
-    const { scope } = locate(ctx.cwd);
     const kind = session.endTurn({
       contextPercent: ctx.getContextUsage()?.percent ?? 0,
-      handoffMissing: !!scope && !readHandoff(scope),
     });
     refreshStatus(ctx);
     if (!kind || !session.cfg.nudgeModel) return;

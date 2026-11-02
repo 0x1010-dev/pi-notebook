@@ -1,241 +1,174 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { after, test } from "node:test";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { test } from "node:test";
 import type { Scope } from "./paths.ts";
 import {
-  appendManaged,
-  findSimilar,
-  initScope,
-  keywords,
-  listEntries,
-  parseRef,
-  readHandoff,
-  readManaged,
-  recall,
-  ref,
-  replaceManaged,
-  retireEntry,
-  saveEntry,
-  searchEntries,
-  updateEntry,
-  writeHandoff,
+  appendManaged, getEntry, initScope, keywords, listAll, normalizeTags,
+  parseRef, preview, readHandoff, readManaged, recall, ref, refreshIndex,
+  replaceManaged, retireEntry, revision, saveEntry, searchEntries, updateEntry, writeHandoff,
 } from "./store.ts";
 
+const root = mkdtempSync(join(tmpdir(), "nb-store-"));
+after(() => rmSync(root, { recursive: true }));
+let next = 0;
 function scope(kind: Scope["kind"] = "project"): Scope {
-  const dir = mkdtempSync(join(tmpdir(), "nb-"));
-  return { kind, dir, agentsFile: join(dir, "AGENTS.md"), mode: "repo" };
+  const dir = join(root, String(++next));
+  return { kind, dir, agentsFile: join(dir, "AGENTS.md"), mode: "repo",
+    project: kind === "project" ? { root, name: "test-project" } : undefined };
 }
 
-test("saveEntry numbers entries", () => {
+test("memory files are readable, editable, and indexed without redundant metadata", () => {
   const s = scope();
   initScope(s);
-  const a = saveEntry(s, "decision", "Use SQLite: for cache", "Context: x");
-  saveEntry(s, "decision", "Use Redis", "Context: z");
-  const c = saveEntry(s, "decision", "Use Postgres", "");
-  assert.equal(a.id, 1);
-  assert.equal(c.id, 3);
-  const all = listEntries(s, "decision");
-  assert.deepEqual(all.map((e) => e.id), [1, 2, 3]);
-  assert.ok(all.every((e) => e.status === "active"));
-  assert.equal(all[0].title, "Use SQLite: for cache");
-  assert.equal(all[2].body, "");
-  assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), "handoff.md\n");
-});
-
-test("legacy superseded entries still load", () => {
-  const s = scope();
-  const p = saveEntry(s, "lesson", "Tokio broadcast for fan-out", "x");
-  writeFileSync(
-    p.path,
-    "---\nid: 1\nkind: lesson\ntitle: t\nstatus: superseded\nsuperseded_by: 2\n---\n\nx\n",
-  );
-  const [e] = listEntries(s, "lesson");
-  assert.equal(e.status, "superseded");
-  assert.equal(e.supersededBy, "L2");
-});
-
-test("updateEntry rewrites in place", () => {
-  const s = scope();
-  const e = saveEntry(s, "lesson", "Old title", "keep me", {}, new Date("2026-01-01T12:00:00"));
-  const u = updateEntry(s, "lesson", e.id, { title: "New title" }, new Date("2026-02-03T12:00:00"));
-  assert.equal(u.id, e.id);
-  assert.equal(u.path, e.path);
-  const [r] = listEntries(s, "lesson");
-  assert.equal(r.title, "New title");
-  assert.equal(r.body, "keep me");
-  assert.equal(r.date, "2026-02-03");
-  assert.equal(listEntries(s, "lesson").length, 1);
-});
-
-test("updateEntry rejects retired and missing entries", () => {
-  const s = scope();
-  const e = saveEntry(s, "lesson", "Thing", "x");
-  retireEntry(s, "lesson", e.id, "gone");
-  assert.throws(() => updateEntry(s, "lesson", e.id, { title: "y" }), /L1 is retired/);
-  assert.throws(() => updateEntry(s, "lesson", 9, { title: "y" }), /L9 not found/);
-});
-
-test("appendManaged skips existing lines", () => {
-  const s = scope();
-  assert.equal(appendManaged(s.agentsFile, "## Prefs", "Use pnpm"), true);
-  assert.equal(appendManaged(s.agentsFile, "## Prefs", "Use pnpm"), false);
-  assert.deepEqual(readManaged(s.agentsFile), ["Use pnpm"]);
-});
-
-test("keywords stems plural tokens", () => {
-  const k = keywords("hangs caches class");
-  assert.ok(k.includes("hang"));
-  assert.ok(k.includes("cache"));
-  assert.ok(k.includes("class"));
-});
-
-test("retireEntry keeps the file but drops it from recall and duplicates", () => {
-  const s = scope();
-  const e = saveEntry(s, "lesson", "Brew postgres needs restart", "x");
-  retireEntry(s, "lesson", e.id, "moved to\ndocker");
-  const [r] = listEntries(s, "lesson");
-  assert.equal(r.status, "retired");
-  assert.equal(r.retiredReason, "moved to docker");
-  assert.equal(searchEntries([s], "postgres restart").length, 1);
-  assert.deepEqual(recall([s], "brew postgres restart", 3), []);
-  assert.equal(findSimilar(s, "lesson", "Brew postgres needs restart"), undefined);
-});
-
-test("refs round-trip", () => {
-  assert.equal(ref({ scope: "global", kind: "lesson", id: 4 }), "~L4");
-  assert.deepEqual(parseRef("~L4"), { global: true, kind: "lesson", id: 4 });
-  assert.deepEqual(parseRef("d12"), {
-    global: false,
-    kind: "decision",
-    id: 12,
+  const e = saveEntry(s, "Braille rendering", "Use the canonical dot table.\n\nIt avoids encoding mistakes.", {
+    tags: ["#TUI", "tui", "rendering"], files: ["src/spark.ts"], commit: "a1b2c3d",
   });
-  assert.equal(parseRef("X1"), undefined);
-  assert.deepEqual(parseRef("n2"), { global: false, kind: "note", id: 2 });
+  assert.equal(ref(e), "M1");
+  assert.match(e.path, /memories\/0001-braille-rendering.md$/);
+  const file = readFileSync(e.path, "utf8");
+  assert.match(file, /# Braille rendering\n\nUse the canonical/);
+  assert.doesNotMatch(file, /^(id|title|kind|status):/m);
+  assert.deepEqual(getEntry(s, 1)?.tags, ["tui", "rendering"]);
+  const index = readFileSync(join(s.dir, "README.md"), "utf8");
+  assert.match(index, /\[M1: Braille rendering\]\(memories\/0001-braille-rendering.md\)/);
+  assert.match(index, /Use the canonical dot table\./);
+  assert.match(index, /#tui #rendering/);
+  assert.match(index, /\[src\/spark.ts\]\(/);
+  writeFileSync(e.path, file.replace("canonical dot table", "library lookup table"));
+  refreshIndex(s);
+  assert.match(readFileSync(join(s.dir, "README.md"), "utf8"), /library lookup table/);
+  assert.equal(recall([s], "lookup table", 3)[0].id, e.id);
 });
 
-test("notes keep files and commit", () => {
+test("updates keep references and omitted fields, and allow clearing metadata", () => {
+  const s = scope();
+  const e = saveEntry(s, "Original", "Keep this.", { tags: ["foo"], files: ["a.ts"], commit: "abc" });
+  const updated = updateEntry(s, e.id, { title: "Current", body: undefined, tags: undefined });
+  assert.equal(updated.path, e.path);
+  assert.equal(updated.body, "Keep this.");
+  assert.equal(updated.commit, "abc");
+  assert.deepEqual(updated.tags, ["foo"]);
+  assert.deepEqual(updated.files, ["a.ts"]);
+  assert.notEqual(revision(e), revision(updated));
+  updateEntry(s, e.id, { tags: [], files: [] });
+  assert.deepEqual(getEntry(s, e.id)?.tags, []);
+  assert.deepEqual(getEntry(s, e.id)?.files, []);
+});
+
+test("archive removes ordinary search results, keeps explicit access and IDs", () => {
+  const s = scope();
+  const e = saveEntry(s, "Database", "SQLite needs no server.");
+  retireEntry(s, e.id, "Replaced.");
+  assert.match(getEntry(s, e.id)!.path, /archive\//);
+  assert.equal(getEntry(s, e.id)?.status, "retired");
+  assert.deepEqual(searchEntries([s], "database"), []);
+  assert.equal(searchEntries([s], "database", 8, { includeRetired: true }).length, 1);
+  assert.deepEqual(recall([s], "database", 3), []);
+  assert.doesNotMatch(readFileSync(join(s.dir, "README.md"), "utf8"), /M1:/);
+  assert.equal(saveEntry(s, "New", "New content.").id, 2);
+  assert.throws(() => updateEntry(s, e.id, { title: "No" }), /retired/);
+  assert.throws(() => updateEntry(s, 99, {}), /not found/);
+});
+
+test("invalid or duplicate memory files fail explicitly", () => {
+  const s = scope();
+  const e = saveEntry(s, "Valid", "Content");
+  const original = readFileSync(e.path, "utf8");
+  writeFileSync(e.path, "No heading");
+  assert.throws(() => listAll(s), /Invalid memory/);
+  writeFileSync(e.path, original.replace(/updated:.*\n/, 'tags: ["broken", 1]\n'));
+  assert.throws(() => listAll(s), /Invalid tags/);
+  writeFileSync(e.path, original);
+  writeFileSync(join(s.dir, "memories", "0001-duplicate.md"), original);
+  assert.throws(() => listAll(s), /Duplicate memory ID/);
+});
+
+test("refs, tags, tokens and previews have predictable semantics", () => {
+  assert.deepEqual(parseRef("~m12"), { global: true, id: 12 });
+  assert.equal(ref({ scope: "global", id: 12 }), "~M12");
+  for (const invalid of ["D1", "M0", "M-1", "M9007199254740992"]) assert.equal(parseRef(invalid), undefined);
+  assert.deepEqual(normalizeTags(["#SQLITE", "sqlite", "error handling"]), ["sqlite", "error-handling"]);
+  const s = scope();
+  saveEntry(s, "C++ details", "Use the documented compiler flags.", { tags: ["C++"] });
+  assert.equal(searchEntries([s], "#c++").length, 1);
+  assert.ok(keywords("caches class").includes("cache"));
+  assert.ok(keywords("src/tui/spark.rs").includes("spark"));
+  assert.deepEqual(keywords("the and of"), []);
+  assert.equal(preview({ body: "Use the library.\n\nLong history omitted." }), "Use the library.");
+  assert.ok(preview({ body: "word ".repeat(100) }, 100).length <= 100);
+});
+
+test("single topics and strong body-only matches recall without substring accidents", () => {
+  const s = scope();
+  const a = saveEntry(s, "SQLite persistence", "Avoid a separate database server.");
+  const b = saveEntry(s, "Shutdown", "Close worker connections when the test runner hangs.");
+  saveEntry(s, "OAuth callbacks", "Register the provider redirect.");
+  assert.deepEqual(recall([s], "sqlite", 3).map(ref), [ref(a)]);
+  assert.ok(recall([s], "test runner hangs", 3).some((e) => e.id === b.id));
+  assert.deepEqual(searchEntries([s], "auth"), []);
+  assert.deepEqual(recall([s], "the and of", 3), []);
+  assert.deepEqual(recall([s], "sqlite", 0), []);
+});
+
+test("tags and project paths retrieve memories with explicit AND tag constraints", () => {
+  const s = scope();
+  const a = saveEntry(s, "Rendering", "Use the library table.", {
+    tags: ["braille", "tui"], files: ["src/tui/spark.rs"],
+  });
+  saveEntry(s, "Other", "Use semantic colors.", { tags: ["tui"] });
+  saveEntry(s, "Panel layout", "Keep values visible.", { files: ["src/tui/render.rs"] });
+  assert.deepEqual(searchEntries([s], "#braille #tui").map((h) => ref(h.entry)), [ref(a)]);
+  assert.deepEqual(searchEntries([s], "#braille #missing"), []);
+  assert.equal(recall([s], "braille", 3)[0].id, a.id);
+  assert.equal(recall([s], "src/tui/spark.rs", 3)[0].id, a.id);
+  assert.deepEqual(recall([s], "src/tui/spark.rs", 3).map(ref), [ref(a)]);
+  assert.equal(recall([s], "src/tui", 3).length, 2);
+});
+
+test("inactive and already-delivered candidates cannot crowd out eligible memories", () => {
+  const s = scope();
+  const target = saveEntry(s, "SQLite choice", "Use the local database.");
+  for (let i = 0; i < 10; i++) {
+    const e = saveEntry(s, "SQLite migrations locking rollback backup", "SQLite migrations locking rollback backup");
+    retireEntry(s, e.id, "Old.");
+  }
+  const newer = saveEntry(s, "SQLite migrations", "SQLite migration guidance.");
+  const hits = recall([s], "SQLite", 1, (e) => e.id === newer.id);
+  assert.deepEqual(hits.map(ref), [ref(target)]);
+});
+
+test("rarity and direct fields prioritize specific knowledge over generic mentions", () => {
+  const s = scope();
+  const wanted = saveEntry(s, "Display width", "Measure terminal cells, not Unicode character counts.", { tags: ["ratatui"] });
+  for (let i = 0; i < 6; i++) saveEntry(s, `General ${i}`, "Display current power and status.");
+  assert.equal(searchEntries([s], "ratatui terminal cells")[0].entry.id, wanted.id);
+});
+
+test("rules preserve human content and replace the managed block", () => {
   const s = scope();
   initScope(s);
-  const n = saveEntry(s, "note", "auth: session cookies", "Middleware in src/auth", {
-    files: ["src/auth", "src/server.ts"],
-    commit: "a1b2c3d",
-  });
-  assert.equal(ref(n), "N1");
-  const [r] = listEntries(s, "note");
-  assert.deepEqual(r.files, ["src/auth", "src/server.ts"]);
-  assert.equal(r.commit, "a1b2c3d");
+  writeFileSync(s.agentsFile, "# Human instructions\n\nLeave this alone.\n");
+  assert.equal(appendManaged(s.agentsFile, "## Preferences", "Use pnpm"), true);
+  assert.equal(appendManaged(s.agentsFile, "## Preferences", "Use pnpm"), false);
+  replaceManaged(s.agentsFile, "## Preferences", ["Use bun", "Be brief"]);
+  assert.deepEqual(readManaged(s.agentsFile), ["Use bun", "Be brief"]);
+  assert.match(readFileSync(s.agentsFile, "utf8"), /Leave this alone/);
 });
 
-test("search ranks title matches and demotes superseded", () => {
+test("handoff is a readable snapshot with an index pointer", () => {
   const s = scope();
-  saveEntry(
-    s,
-    "lesson",
-    "Brew postgres needs restart",
-    "Symptom: config ignored",
-  );
-  saveEntry(s, "lesson", "Unrelated", "mentions postgres once");
-  const hits = searchEntries([s], "postgres restart");
-  assert.equal(hits[0].entry.title, "Brew postgres needs restart");
-  assert.equal(hits.length, 2);
-});
-
-test("managed section is created once and appended", () => {
-  const s = scope();
-  appendManaged(s.agentsFile, "## Preferences", "use pnpm");
-  appendManaged(s.agentsFile, "## Preferences", "no em-dashes\nplease");
-  const src = readFileSync(s.agentsFile, "utf8");
-  assert.equal(src.match(/## Preferences/g)?.length, 1);
-  assert.deepEqual(readManaged(s.agentsFile), [
-    "use pnpm",
-    "no em-dashes please",
-  ]);
-});
-
-test("managed section preserves existing content", () => {
-  const s = scope();
-  const before = "# Mine\n\nhand written\n";
-  writeFileSync(s.agentsFile, before);
-  appendManaged(s.agentsFile, "## Preferences", "a");
-  appendManaged(s.agentsFile, "## Preferences", "b");
-  const out = readFileSync(s.agentsFile, "utf8");
-  assert.ok(out.startsWith(before));
-  assert.deepEqual(readManaged(s.agentsFile), ["a", "b"]);
-});
-
-test("handoff round-trips", () => {
-  const s = scope();
+  initScope(s);
   const h = {
-    goal: "Ship v1",
-    status: "Tests pass.\nDocs pending.",
-    nextSteps: ["write docs", "tag release"],
-    blockers: [],
-    notes: "",
-    updated: "2026-10-21T10:00:00.000Z",
+    goal: "Ship", status: "Implementation done", nextSteps: ["Test", "Document"],
+    blockers: [], notes: "", updated: "2026-10-23T12:00:00.000Z",
   };
   writeHandoff(s, h);
   assert.deepEqual(readHandoff(s), h);
-});
-
-test("findSimilar matches near-duplicate titles only", () => {
-  const s = scope();
-  const a = saveEntry(
-    s,
-    "lesson",
-    "Brew postgres needs restart after config change",
-    "x",
-  );
-  assert.equal(
-    findSimilar(
-      s,
-      "lesson",
-      "Postgres from brew needs a restart after config change",
-    )?.id,
-    a.id,
-  );
-  assert.equal(
-    findSimilar(s, "lesson", "Redis cache eviction policy"),
-    undefined,
-  );
-  assert.equal(
-    findSimilar(
-      s,
-      "decision",
-      "Brew postgres needs restart after config change",
-    ),
-    undefined,
-  );
-});
-
-test("recall needs a title match and ignores stopwords", () => {
-  const s = scope();
-  saveEntry(
-    s,
-    "lesson",
-    "Vitest hangs on open handles",
-    "Symptom: the test run never exits",
-  );
-  saveEntry(s, "lesson", "Unrelated", "the and of to with test");
-  const hits = recall([s], "why does vitest hang when the test run ends?", 3);
-  assert.deepEqual(
-    hits.map((e) => e.title),
-    ["Vitest hangs on open handles"],
-  );
-  assert.deepEqual(recall([s], "what is the weather", 3), []);
-  assert.deepEqual(recall([s], "vitest hangs", 0), []);
-});
-
-test("replaceManaged rewrites only the managed lines", () => {
-  const s = scope();
-  writeFileSync(s.agentsFile, "# Mine\n");
-  replaceManaged(s.agentsFile, "## Preferences", []);
-  assert.equal(readFileSync(s.agentsFile, "utf8"), "# Mine\n");
-  replaceManaged(s.agentsFile, "## Preferences", ["a", "b"]);
-  replaceManaged(s.agentsFile, "## Preferences", ["c"]);
-  const out = readFileSync(s.agentsFile, "utf8");
-  assert.ok(out.startsWith("# Mine\n"));
-  assert.equal(out.match(/## Preferences/g)?.length, 1);
-  assert.deepEqual(readManaged(s.agentsFile), ["c"]);
+  assert.match(readFileSync(join(s.dir, "handoff.md"), "utf8"), /# Current handoff/);
+  assert.match(readFileSync(join(s.dir, "README.md"), "utf8"), /\[Current handoff\]\(handoff.md\)/);
+  writeHandoff(s, { ...h, status: "Complete", nextSteps: [] });
+  assert.deepEqual(readHandoff(s)?.nextSteps, []);
+  assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), "handoff.md\n");
 });

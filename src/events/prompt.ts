@@ -1,5 +1,5 @@
-import { buildSnapshot, syncContextFile } from "../context-files.ts";
-import { NUDGE_TYPE, RECALL_BODY_CHARS } from "../constants.ts";
+import { NUDGE_TYPE, RECALL_BUDGET_CHARS } from "../constants.ts";
+import { buildSnapshot, notebookFingerprint, syncContextFile } from "../context-files.ts";
 import { clip, entryLabel, noteLines } from "../format.ts";
 import { formatHandoff } from "../inject.ts";
 import { locate, type Located, type Runtime } from "../runtime.ts";
@@ -11,10 +11,10 @@ import {
   nudgeText,
   PREFERENCE_NUDGE,
 } from "../signals.ts";
-import { readHandoff, recall, ref } from "../store.ts";
+import { readHandoff, recall, ref, refreshIndex, revision } from "../store.ts";
 
 /** Hidden notes for the model: nudges, a resume handoff, or entries relevant to the prompt. */
-function promptNotes(
+export function promptNotes(
   session: Session,
   { scope, global }: Located,
   cwd: string,
@@ -36,19 +36,30 @@ function promptNotes(
     notes.push(
       `[pi-notebook] The prompt looks like resuming work. Full project handoff:\n\n${formatHandoff(resume)}`,
     );
-    return notes;
   }
 
   const hits = recall(
     scope ? [scope, global] : [global],
     prompt,
     cfg.autoRecall,
-  ).filter((e) => !session.recalled.has(ref(e)));
+    (e) => session.recalled.get(ref(e)) === revision(e),
+  );
   if (hits.length) {
-    for (const e of hits) session.recalled.add(ref(e));
-    const entries = hits.map((e) =>
-      [entryLabel(e), ...noteLines(cwd, e), clip(e.body, RECALL_BODY_CHARS)].join("\n"),
-    );
+    let remaining = RECALL_BUDGET_CHARS;
+    const entries: string[] = [];
+    for (const [i, e] of hits.entries()) {
+      const heading = [entryLabel(e), ...noteLines(cwd, e)].join("\n");
+      const allowance = Math.floor(remaining / (hits.length - i));
+      if (heading.length + 80 > allowance) continue;
+      const body = clip(e.body, allowance - heading.length - 80);
+      const more = body === e.body ? "" : `\nRead ${ref(e)} for the full memory.`;
+      const rendered = `${heading}\n${body}${more}`;
+      if (rendered.length + 2 > remaining) continue;
+      entries.push(rendered);
+      remaining -= rendered.length + 2;
+      session.recalled.set(ref(e), revision(e));
+    }
+    if (!entries.length) return notes;
     notes.push(
       `[pi-notebook] Possibly relevant notebook entries. Use them if they apply, ignore them otherwise.\n\n${entries.join("\n\n")}`,
     );
@@ -59,8 +70,16 @@ function promptNotes(
 export function registerPromptEvents({ pi, session }: Runtime): void {
   pi.on("before_agent_start", async (event, ctx) => {
     const located = locate(ctx.cwd);
-    if (!session.snapshot || session.cfg.refreshSection === "turn")
+    if (located.scope) refreshIndex(located.scope);
+    refreshIndex(located.global);
+    const fingerprint = notebookFingerprint(located);
+    if (session.snapshot && session.snapshotFingerprint !== fingerprint)
+      session.handoffShown = false;
+    if (!session.snapshot || session.cfg.refreshSection === "turn" ||
+        session.snapshotFingerprint !== fingerprint) {
       session.snapshot = buildSnapshot(located, session.cfg);
+      session.snapshotFingerprint = fingerprint;
+    }
     const opts = event.systemPromptOptions;
     opts.sections.notebook = session.snapshot.section;
     for (const f of session.snapshot.files)

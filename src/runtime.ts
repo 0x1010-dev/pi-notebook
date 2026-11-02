@@ -70,7 +70,9 @@ export function createRuntime(pi: ExtensionAPI): Runtime {
     ctx.ui.setWidget(
       STATUS_KEY,
       (_tui, theme) => ({
-        render: (width: number) => [truncateToWidth(statusLine(theme, info), width)],
+        render: (width: number) => [
+          truncateToWidth(statusLine(theme, info), width),
+        ],
         invalidate: () => {},
       }),
       { placement },

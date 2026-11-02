@@ -9,19 +9,15 @@ export interface NotebookConfig {
   injectBudgetTokens: number;
   /** Most recent global entries listed in the injected index. */
   globalIndexLimit: number;
-  /** Turns without a save before nudging a handoff update. */
-  checkpointTurns: number;
-  /** Turns without a save before nudging when the project has no handoff. */
-  handoffAfterTurns: number;
   /** Minimum turns between nudges (the context nudge ignores it). */
   nudgeCooldownTurns: number;
   /** Context usage percent that triggers a save-before-compaction nudge. 0 disables. */
   wrapAtContextPercent: number;
   /** Send short hidden nudges to the model when signals fire. */
   nudgeModel: boolean;
-  /** Block file tools and shell commands that touch notebook files. */
+  /** Block direct model file-tool writes to notebook files (not a shell security boundary). */
   guard: boolean;
-  /** Rebuild the injected section once per session (prompt-cache friendly) or every turn. */
+  /** Cache the injected section until notebook content changes, or rebuild every turn. */
   refreshSection: "session" | "turn";
   /** Entries matching the user's prompt attached as a hidden note. 0 disables. */
   autoRecall: number;
@@ -33,9 +29,7 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   storage: "repo",
   injectBudgetTokens: 1500,
   globalIndexLimit: 20,
-  checkpointTurns: 30,
-  handoffAfterTurns: 6,
-  nudgeCooldownTurns: 8,
+  nudgeCooldownTurns: 16,
   wrapAtContextPercent: 50,
   nudgeModel: true,
   guard: true,
@@ -58,8 +52,6 @@ export function loadConfig(): NotebookConfig {
     for (const key of [
       "injectBudgetTokens",
       "globalIndexLimit",
-      "checkpointTurns",
-      "handoffAfterTurns",
       "nudgeCooldownTurns",
     ] as const) {
       if (typeof raw[key] === "number" && raw[key] > 0) cfg[key] = raw[key];

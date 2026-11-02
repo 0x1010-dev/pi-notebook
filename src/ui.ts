@@ -22,22 +22,16 @@ export interface StatusInfo {
   handoff?: Handoff;
 }
 
-export function counts(entries: Entry[]): { d: number; l: number; n: number } {
-  const active = entries.filter((e) => e.status === "active");
-  return {
-    d: active.filter((e) => e.kind === "decision").length,
-    l: active.filter((e) => e.kind === "lesson").length,
-    n: active.filter((e) => e.kind === "note").length,
-  };
+export function counts(entries: Entry[]): number {
+  return entries.filter((e) => e.status === "active").length;
 }
 
 function summary(th: Theme, entries: Entry[]): string {
-  const c = counts(entries);
-  const notes = c.n ? ` ${th.fg("text", `${c.n}n`)}` : "";
-  return `${th.fg("text", `${c.d}d`)} ${th.fg("text", `${c.l}l`)}${notes}`;
+  const active = counts(entries);
+  return th.fg("text", `${active} active`);
 }
 
-/** Footer status, e.g. `◆ NB · 3d 5l · handoff updated 2h ago` */
+/** Footer status, e.g. `◆ NB · 8 active · handoff updated 2h ago` */
 export function statusLine(th: Theme, s: StatusInfo): string {
   const sep = th.fg("dim", " · ");
   const lit = !!s.scope || s.globalEntries.length > 0;

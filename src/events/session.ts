@@ -2,7 +2,11 @@ import { locate, type Runtime } from "../runtime.ts";
 import { listAll, readHandoff } from "../store.ts";
 import { startupSummary } from "../view.ts";
 
-export function registerSessionEvents({ pi, session, refreshStatus }: Runtime): void {
+export function registerSessionEvents({
+  pi,
+  session,
+  refreshStatus,
+}: Runtime): void {
   pi.on("session_start", async (event, ctx) => {
     session.reset();
     refreshStatus(ctx);

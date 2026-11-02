@@ -1,61 +1,38 @@
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import type { Scope, ScopeKind } from "./paths.ts";
-
-export type EntryKind = "decision" | "lesson" | "note";
-export type EntryStatus = "active" | "superseded" | "retired";
+import { staleness } from "./git.ts";
 
 export interface Entry {
   scope: ScopeKind;
-  kind: EntryKind;
   id: number;
   title: string;
-  status: EntryStatus;
+  status: "active" | "retired";
   date: string;
-  supersedes?: number[];
-  supersededBy?: string;
-  retiredReason?: string;
-  /** Notes only: repo paths the note describes. */
+  tags: string[];
   files?: string[];
-  /** Notes only: HEAD when the note was saved. */
   commit?: string;
+  retiredReason?: string;
   body: string;
   path: string;
 }
 
-const DIRS: Record<EntryKind, string> = {
-  decision: "decisions",
-  lesson: "lessons",
-  note: "notes",
-};
-const PREFIX: Record<EntryKind, string> = {
-  decision: "D",
-  lesson: "L",
-  note: "N",
-};
-const FILE_RE = /^(\d+)-.*\.md$/;
-
-export function ref(e: Pick<Entry, "scope" | "kind" | "id">): string {
-  return `${e.scope === "global" ? "~" : ""}${PREFIX[e.kind]}${e.id}`;
+export function ref(e: Pick<Entry, "scope" | "id">): string {
+  return `${e.scope === "global" ? "~" : ""}M${e.id}`;
 }
 
-export function parseRef(
-  text: string,
-): { global: boolean; kind: EntryKind; id: number } | undefined {
-  const m = /^(~?)([DLN])(\d+)$/i.exec(text.trim());
-  if (!m) return undefined;
-  const letter = m[2].toUpperCase();
-  return {
-    global: m[1] === "~",
-    kind: letter === "D" ? "decision" : letter === "L" ? "lesson" : "note",
-    id: Number(m[3]),
-  };
+export function parseRef(text: string): { global: boolean; id: number } | undefined {
+  const m = /^(~?)M([1-9]\d*)$/i.exec(text.trim());
+  if (!m || !Number.isSafeInteger(Number(m[2]))) return undefined;
+  return { global: m[1] === "~", id: Number(m[2]) };
 }
 
 export function oneLine(text: string): string {
@@ -63,27 +40,17 @@ export function oneLine(text: string): string {
 }
 
 export function slugify(text: string): string {
-  return (
-    text
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48)
-      .replace(/-+$/, "") || "entry"
-  );
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "").slice(0, 60).replace(/-+$/, "") || "memory";
 }
 
-export function today(now = new Date()): string {
-  return now.toISOString().slice(0, 10);
+export function normalizeTags(tags: string[]): string[] {
+  return [...new Set(tags.map((t) => t.trim().replace(/^#+/, "").toLowerCase()
+    .replace(/[^\p{L}\p{N}_.+/-]+/gu, "-").replace(/^-+|-+$/g, "")).filter(Boolean))];
 }
 
-function parseFrontmatter(text: string): {
-  meta: Record<string, string>;
-  body: string;
-} {
-  const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(
-    text.replace(/\r\n/g, "\n"),
-  );
+function parseFrontmatter(text: string): { meta: Record<string, string>; body: string } {
+  const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text.replace(/\r\n/g, "\n"));
   if (!m) return { meta: {}, body: text.trim() };
   const meta: Record<string, string> = {};
   for (const line of m[1].split("\n")) {
@@ -93,14 +60,10 @@ function parseFrontmatter(text: string): {
   return { meta, body: m[2].trim() };
 }
 
-function renderFrontmatter(
-  meta: Record<string, string | number | undefined>,
-  body: string,
-): string {
-  const lines = Object.entries(meta)
-    .filter(([, v]) => v !== undefined && v !== "")
+function renderFrontmatter(meta: Record<string, string | undefined>, body: string): string {
+  const lines = Object.entries(meta).filter(([, v]) => v !== undefined && v !== "")
     .map(([k, v]) => `${k}: ${v}`);
-  return `---\n${lines.join("\n")}\n---\n\n${body.trim()}\n`;
+  return `${lines.length ? `---\n${lines.join("\n")}\n---\n\n` : ""}${body.trim()}\n`;
 }
 
 function writeFile(path: string, content: string): void {
@@ -108,340 +71,292 @@ function writeFile(path: string, content: string): void {
   writeFileSync(path, content);
 }
 
-function writeEntry(e: Entry): void {
-  writeFile(
-    e.path,
-    renderFrontmatter(
-      {
-        id: e.id,
-        kind: e.kind,
-        title: e.title,
-        status: e.status,
-        date: e.date,
-        supersedes: e.supersedes?.join(", "),
-        superseded_by: e.supersededBy,
-        retired_reason: e.retiredReason,
-        files: e.files?.join(", "),
-        commit: e.commit,
-      },
-      e.body,
-    ),
-  );
+function stringList(value: string | undefined, field: string, path: string): string[] {
+  if (!value) return [];
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || !parsed.every((v) => typeof v === "string"))
+    throw new Error(`Invalid ${field} in ${path}: expected a JSON string array.`);
+  return parsed;
 }
 
-export function listEntries(scope: Scope, kind: EntryKind): Entry[] {
-  const dir = join(scope.dir, DIRS[kind]);
-  if (!existsSync(dir)) return [];
+function writeEntry(e: Entry): void {
+  writeFile(e.path, renderFrontmatter({
+    updated: e.date,
+    tags: e.tags.length ? JSON.stringify(e.tags) : undefined,
+    files: e.files?.length ? JSON.stringify(e.files) : undefined,
+    commit: e.commit,
+    retired_reason: e.retiredReason ? JSON.stringify(e.retiredReason) : undefined,
+  }, `# ${e.title}\n\n${e.body}`));
+}
+
+export function listAll(scope: Scope): Entry[] {
   const entries: Entry[] = [];
-  for (const name of readdirSync(dir)) {
-    const m = FILE_RE.exec(name);
-    if (!m) continue;
-    const path = join(dir, name);
-    const { meta, body } = parseFrontmatter(readFileSync(path, "utf8"));
-    entries.push({
-      scope: scope.kind,
-      kind,
-      id: Number(meta.id ?? m[1]),
-      title: meta.title || name,
-      status:
-        meta.status === "superseded" || meta.status === "retired"
-          ? meta.status
-          : "active",
-      date: meta.date ?? "",
-      supersedes: meta.supersedes
-        ? meta.supersedes
-            .split(",")
-            .map(Number)
-            .filter((n) => !Number.isNaN(n))
-        : undefined,
-      supersededBy: meta.superseded_by
-        ? /^\d+$/.test(meta.superseded_by)
-          ? ref({ scope: scope.kind, kind, id: Number(meta.superseded_by) })
-          : meta.superseded_by
-        : undefined,
-      retiredReason: meta.retired_reason || undefined,
-      files: meta.files
-        ? meta.files
-            .split(",")
-            .map((f) => f.trim())
-            .filter(Boolean)
-        : undefined,
-      commit: meta.commit || undefined,
-      body,
-      path,
-    });
+  for (const status of ["active", "retired"] as const) {
+    const dir = join(scope.dir, status === "active" ? "memories" : "archive");
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir).sort()) {
+      const m = /^(\d+)-.*\.md$/.exec(name);
+      if (!m) continue;
+      const path = join(dir, name);
+      const { meta, body } = parseFrontmatter(readFileSync(path, "utf8"));
+      const heading = /^# ([^\n]+)\n?([\s\S]*)$/.exec(body);
+      const id = Number(m[1]);
+      if (!heading || !heading[1].trim() || !Number.isSafeInteger(id) || id < 1)
+        throw new Error(`Invalid memory ${path}: expected a numeric filename and a # title.`);
+      if (entries.some((e) => e.id === id))
+        throw new Error(`Duplicate memory ID M${id} in ${scope.dir}.`);
+      const retiredReason: unknown = meta.retired_reason ? JSON.parse(meta.retired_reason) : undefined;
+      if (retiredReason !== undefined && typeof retiredReason !== "string")
+        throw new Error(`Invalid retired_reason in ${path}: expected a string.`);
+      entries.push({
+        scope: scope.kind, id, status, path,
+        title: heading[1].trim(), body: heading[2].trim(),
+        date: meta.updated ?? "",
+        tags: normalizeTags(stringList(meta.tags, "tags", path)),
+        files: stringList(meta.files, "files", path),
+        commit: meta.commit,
+        retiredReason,
+      });
+    }
   }
   return entries.sort((a, b) => a.id - b.id);
 }
 
-export function listAll(scope: Scope): Entry[] {
-  return [
-    ...listEntries(scope, "decision"),
-    ...listEntries(scope, "lesson"),
-    ...listEntries(scope, "note"),
-  ];
+export function getEntry(scope: Scope, id: number): Entry | undefined {
+  return listAll(scope).find((e) => e.id === id);
 }
 
-export function getEntry(
-  scope: Scope,
-  kind: EntryKind,
-  id: number,
-): Entry | undefined {
-  return listEntries(scope, kind).find((e) => e.id === id);
+export interface MemoryMeta {
+  tags?: string[];
+  files?: string[];
+  commit?: string;
 }
 
 export function saveEntry(
-  scope: Scope,
-  kind: EntryKind,
-  title: string,
-  body: string,
-  meta: { files?: string[]; commit?: string } = {},
-  now = new Date(),
+  scope: Scope, title: string, body: string, meta: MemoryMeta = {}, now = new Date(),
 ): Entry {
-  const existing = listEntries(scope, kind);
-  const id = existing.reduce((max, e) => Math.max(max, e.id), 0) + 1;
+  if (!title.trim() || !body.trim()) throw new Error("A memory needs a title and content.");
+  const id = listAll(scope).reduce((max, e) => Math.max(max, e.id), 0) + 1;
   const cleanTitle = oneLine(title);
   const entry: Entry = {
-    scope: scope.kind,
-    kind,
-    id,
-    title: cleanTitle,
-    status: "active",
-    date: today(now),
-    files: meta.files?.length ? meta.files : undefined,
-    commit: meta.commit,
-    body: body.trim(),
-    path: join(
-      scope.dir,
-      DIRS[kind],
-      `${String(id).padStart(4, "0")}-${slugify(cleanTitle)}.md`,
-    ),
+    scope: scope.kind, id, title: cleanTitle, body: body.trim(),
+    status: "active", date: now.toISOString(), tags: normalizeTags(meta.tags ?? []),
+    files: meta.files, commit: meta.commit,
+    path: join(scope.dir, "memories", `${String(id).padStart(4, "0")}-${slugify(cleanTitle)}.md`),
   };
   writeEntry(entry);
+  refreshIndex(scope);
   return entry;
 }
 
-/** Rewrite an active entry in place; same id and file. Omitted fields keep their value. */
 export function updateEntry(
-  scope: Scope,
-  kind: EntryKind,
-  id: number,
-  patch: { title?: string; body?: string; files?: string[]; commit?: string },
-  now = new Date(),
+  scope: Scope, id: number,
+  patch: MemoryMeta & { title?: string; body?: string }, now = new Date(),
 ): Entry {
-  const e = getEntry(scope, kind, id);
-  const r = ref({ scope: scope.kind, kind, id });
-  if (!e) throw new Error(`${r} not found.`);
-  if (e.status !== "active")
-    throw new Error(`${r} is ${e.status}; save a new entry instead.`);
+  const entry = getEntry(scope, id);
+  if (!entry) throw new Error(`M${id} not found.`);
+  if (entry.status !== "active") throw new Error(`M${id} is retired; save a new memory instead.`);
+  if (patch.title !== undefined && !patch.title.trim() ||
+      patch.body !== undefined && !patch.body.trim())
+    throw new Error("A memory needs a title and content.");
   const updated: Entry = {
-    ...e,
-    title: patch.title ? oneLine(patch.title) : e.title,
-    body: patch.body !== undefined ? patch.body.trim() : e.body,
-    files: patch.files ?? e.files,
-    commit: patch.commit ?? e.commit,
-    date: today(now),
+    ...entry,
+    title: patch.title === undefined ? entry.title : oneLine(patch.title),
+    body: patch.body === undefined ? entry.body : patch.body.trim(),
+    tags: patch.tags === undefined ? entry.tags : normalizeTags(patch.tags),
+    files: patch.files ?? entry.files,
+    commit: patch.commit ?? entry.commit,
+    date: now.toISOString(),
   };
   writeEntry(updated);
+  refreshIndex(scope);
   return updated;
 }
 
-/** Take an entry out of use without a replacement. The file stays. */
-export function retireEntry(
-  scope: Scope,
-  kind: EntryKind,
-  id: number,
-  reason: string,
-): void {
-  const e = getEntry(scope, kind, id);
-  if (!e) throw new Error(`${ref({ scope: scope.kind, kind, id })} not found`);
-  writeEntry({ ...e, status: "retired", retiredReason: oneLine(reason) });
+export function retireEntry(scope: Scope, id: number, reason: string): void {
+  const entry = getEntry(scope, id);
+  if (!entry) throw new Error(`M${id} not found.`);
+  if (entry.status === "retired") return;
+  const archived = { ...entry, status: "retired" as const, retiredReason: oneLine(reason) };
+  writeEntry(archived);
+  const target = join(scope.dir, "archive", entry.path.slice(entry.path.lastIndexOf("/") + 1));
+  mkdirSync(dirname(target), { recursive: true });
+  renameSync(entry.path, target);
+  refreshIndex(scope);
+}
+
+export function revision(e: Entry): string {
+  return createHash("sha1").update(JSON.stringify([
+    e.path, e.title, e.body, e.tags, e.files, e.commit, e.status,
+  ])).digest("hex");
+}
+
+export function preview(e: Pick<Entry, "body">, max = 240): string {
+  const first = e.body.trim().split(/\n\s*\n/)[0] ?? "";
+  const flat = oneLine(first);
+  if (flat.length <= max) return flat;
+  const end = flat.lastIndexOf(" ", max - 3);
+  return `${flat.slice(0, end > max / 2 ? end : max - 3)}...`;
+}
+
+function markdownText(text: string): string {
+  return oneLine(text).replace(/([\\`*_[\]<>#!|])/g, "\\$1");
+}
+
+export function refreshIndex(scope: Scope): void {
+  if (!existsSync(scope.dir)) return;
+  const entries = listAll(scope).filter((e) => e.status === "active");
+  const lines = ["# Notebook", "", "Durable knowledge for future work. Edit memory files freely; this index is generated.", ""];
+  if (existsSync(handoffPath(scope))) lines.push("[Current handoff](handoff.md)", "");
+  if (!entries.length) lines.push("No memories yet.");
+  for (const e of entries) {
+    const link = relative(scope.dir, e.path).split("/").map(encodeURIComponent).join("/");
+    lines.push(`## [${ref(e)}: ${markdownText(e.title)}](${link})`, "", markdownText(preview(e)), "");
+    if (e.tags.length) lines.push(e.tags.map((t) => `#${markdownText(t)}`).join(" "), "");
+    if (e.files?.length) {
+      const paths = e.files.map((f) => {
+        if (!scope.project) return `\`${f}\``;
+        const target = relative(scope.dir, join(scope.project.root, f))
+          .split("/").map(encodeURIComponent).join("/");
+        return `[${markdownText(f)}](${target})`;
+      });
+      lines.push(`Related: ${paths.join(", ")}`, "");
+    }
+    if (scope.project && e.commit) {
+      const warning = staleness(scope.project.root, e.commit, e.files);
+      if (warning) lines.push(`> ${markdownText(warning)}`, "");
+    }
+  }
+  const content = `${lines.join("\n").trim()}\n`;
+  const path = join(scope.dir, "README.md");
+  if (!existsSync(path) || readFileSync(path, "utf8") !== content) writeFile(path, content);
+}
+
+const STOPWORDS = new Set(
+  "a an and are as at be but by can could do does for from had has have how i if in into is it its just let me my no not of on or our please should so some than that the their them then there these they this to too us use using was we what when where which while who why will with would you your".split(" "),
+);
+
+export function keywords(text: string): string[] {
+  return [...new Set((text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+    .filter((t) => t.length > 1 && !STOPWORDS.has(t))
+    .map((t) => t.length > 3 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t))];
 }
 
 export interface SearchHit {
   entry: Entry;
   score: number;
-  /** Distinct query terms found in the title. */
-  titleHits: number;
   snippet: string;
+  matches: string[];
 }
 
-const STOPWORDS = new Set(
-  "a an and are as at be but by can could do does for from had has have how i if in into is it its just let me my no not of on or our please should so some than that the their them then there these they this to too us use using was we what when where which while who why will with would you your".split(
-    " ",
-  ),
-);
-
-export function keywords(text: string): string[] {
-  return [
-    ...new Set(
-      text
-        .toLowerCase()
-        .split(/[^a-z0-9_.-]+/)
-        .map((t) => t.replace(/^[.-]+|[.-]+$/g, ""))
-        .filter((t) => t.length > 1 && !STOPWORDS.has(t))
-        .map((t) =>
-          t.length > 3 && t.endsWith("s") && !t.endsWith("ss")
-            ? t.slice(0, -1)
-            : t,
-        ),
-    ),
-  ];
+interface SearchOptions {
+  includeRetired?: boolean;
+  exclude?: (entry: Entry) => boolean;
 }
 
 export function searchEntries(
-  scopes: Scope[],
-  query: string,
-  limit = 8,
+  scopes: Scope[], query: string, limit = 8, options: SearchOptions = {},
 ): SearchHit[] {
-  const terms = keywords(query);
-  if (terms.length === 0) return [];
+  const tags = normalizeTags([...query.matchAll(/(?:^|\s)#([\p{L}\p{N}_.+/-]+)/gu)].map((m) => m[1]));
+  const terms = keywords(query.replace(/(?:^|\s)#[\p{L}\p{N}_.+/-]+/gu, " "));
+  const paths = [...query.matchAll(/(?:^|\s)(\.?\/?[\p{L}\p{N}_.-]+(?:\/[\p{L}\p{N}_.-]+)+)/gu)]
+    .map((m) => m[1].replace(/^\.\//, "").toLowerCase());
+  if ((!terms.length && !tags.length) || !Number.isFinite(limit) || limit <= 0) return [];
+  const entries = scopes.flatMap(listAll).filter((e) =>
+    (options.includeRetired || e.status === "active") &&
+    !options.exclude?.(e) && tags.every((t) => e.tags.includes(t)));
+  const documents = entries.map((entry) => ({
+    entry,
+    fields: [
+      { name: "title", weight: 3, tokens: new Set(keywords(entry.title)) },
+      { name: "tags", weight: 4, tokens: new Set(keywords(entry.tags.join(" "))) },
+      { name: "paths", weight: 3, tokens: new Set(keywords((entry.files ?? []).join(" "))) },
+      { name: "content", weight: 1, tokens: new Set(keywords(entry.body)) },
+    ],
+  }));
+  const rarity = new Map(terms.map((t) => [t, 1 + Math.log(1 + documents.length /
+    (1 + documents.filter((d) => d.fields.some((f) => f.tokens.has(t))).length))]));
   const hits: SearchHit[] = [];
-  for (const scope of scopes) {
-    for (const entry of listAll(scope)) {
-      const title = entry.title.toLowerCase();
-      const body = entry.body.toLowerCase();
-      let score = 0;
-      let titleHits = 0;
-      for (const t of terms) {
-        if (title.includes(t)) {
-          score += 3;
-          titleHits++;
-        }
-        if (body.includes(t)) score += 1;
-      }
-      if (score === 0) continue;
-      if (entry.status !== "active") score *= 0.3;
-      hits.push({
-        entry,
-        score,
-        titleHits,
-        snippet: snippetFor(entry.body, terms),
+  for (const { entry, fields } of documents) {
+    let score = tags.length * 4;
+    const matches = new Set<string>(tags.map((t) => `#${t}`));
+    for (const path of paths) {
+      const related = entry.files?.some((file) => {
+        const normalized = file.replace(/^\.\//, "").replace(/\/$/, "").toLowerCase();
+        return normalized === path || path.startsWith(`${normalized}/`) ||
+          normalized.startsWith(`${path}/`);
       });
+      if (related || entry.body.toLowerCase().includes(path)) {
+        score += 10;
+        matches.add(`file:${path}`);
+      }
     }
+    for (const term of terms) {
+      const found = fields.filter((f) => f.tokens.has(term));
+      if (!found.length) continue;
+      score += Math.max(...found.map((f) => f.weight)) * rarity.get(term)!;
+      for (const f of found) matches.add(`${f.name}:${term}`);
+    }
+    if (!matches.size) continue;
+    if (entry.status === "retired") score *= 0.3;
+    hits.push({ entry, score, matches: [...matches], snippet: preview(entry) });
   }
-  return hits.sort((a, b) => b.score - a.score).slice(0, limit);
+  return hits.sort((a, b) => b.score - a.score ||
+    b.entry.date.localeCompare(a.entry.date) || ref(a.entry).localeCompare(ref(b.entry)))
+    .slice(0, Math.floor(limit));
 }
 
-/** Active entries strongly related to a prompt; cheap enough to run every turn. */
 export function recall(
-  scopes: Scope[],
-  prompt: string,
-  limit: number,
+  scopes: Scope[], prompt: string, limit: number,
+  exclude?: (entry: Entry) => boolean,
 ): Entry[] {
-  if (limit <= 0) return [];
-  return searchEntries(scopes, prompt, limit * 3)
-    .filter(
-      (h) => h.entry.status === "active" && h.titleHits >= 1 && h.score >= 5,
-    )
-    .slice(0, limit)
-    .map((h) => h.entry);
+  const hits = searchEntries(scopes, prompt, Number.MAX_SAFE_INTEGER, { exclude });
+  const terms = keywords(prompt);
+  const directPathHit = hits.some((h) => h.matches.some((m) => m.startsWith("file:")));
+  return hits.filter((h) => {
+    if (directPathHit) return h.matches.some((m) => m.startsWith("file:"));
+    if (h.matches.some((m) => m.startsWith("#"))) return true;
+    const contentOnly = h.matches.every((m) => m.startsWith("content:"));
+    const matched = new Set(h.matches.map((m) => m.slice(m.indexOf(":") + 1))).size;
+    return contentOnly ? matched >= 2 : matched >= Math.min(2, terms.length);
+  }).slice(0, Math.max(0, Math.floor(limit))).map((h) => h.entry);
 }
-
-/** Active entry whose title shares most of its keywords with `title`. */
-export function findSimilar(
-  scope: Scope,
-  kind: EntryKind,
-  title: string,
-  threshold = 0.6,
-): Entry | undefined {
-  const a = new Set(keywords(title));
-  if (a.size === 0) return undefined;
-  let best: { entry: Entry; sim: number } | undefined;
-  for (const entry of listEntries(scope, kind)) {
-    if (entry.status !== "active") continue;
-    const b = new Set(keywords(entry.title));
-    const shared = [...a].filter((t) => b.has(t)).length;
-    const sim = shared / (a.size + b.size - shared);
-    if (sim >= threshold && (!best || sim > best.sim)) best = { entry, sim };
-  }
-  return best?.entry;
-}
-
-function snippetFor(body: string, terms: string[]): string {
-  const flat = oneLine(body);
-  const lower = flat.toLowerCase();
-  const at =
-    terms
-      .map((t) => lower.indexOf(t))
-      .filter((i) => i >= 0)
-      .sort((a, b) => a - b)[0] ?? 0;
-  const start = Math.max(0, at - 60);
-  return `${start > 0 ? "…" : ""}${flat.slice(start, start + 200)}${start + 200 < flat.length ? "…" : ""}`;
-}
-
-// AGENTS.md managed section
 
 export const MANAGED_START = "<!-- pi-notebook:start -->";
 export const MANAGED_END = "<!-- pi-notebook:end -->";
-
-/** Kinds stored as one-line rules in AGENTS.md instead of as entries. */
 export type RuleKind = "preference" | "convention";
-
 export const RULE_HEADING: Record<RuleKind, string> = {
-  preference: "## Preferences",
-  convention: "## Conventions",
+  preference: "## Preferences", convention: "## Conventions",
 };
-
-const START = MANAGED_START;
-const END = MANAGED_END;
-const NOTICE =
-  "<!-- Managed by pi-notebook. Change with /nb:remember, /nb:prefs or the memory_save tool. -->";
 
 export function readManaged(file: string): string[] {
   if (!existsSync(file)) return [];
   const src = readFileSync(file, "utf8");
-  const s = src.indexOf(START);
-  const e = src.indexOf(END);
+  const s = src.indexOf(MANAGED_START), e = src.indexOf(MANAGED_END);
   if (s < 0 || e < s) return [];
-  return src
-    .slice(s + START.length, e)
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith("- "))
-    .map((l) => l.slice(2));
+  return src.slice(s + MANAGED_START.length, e).split("\n")
+    .map((l) => l.trim()).filter((l) => l.startsWith("- ")).map((l) => l.slice(2));
 }
 
-export function appendManaged(
-  file: string,
-  heading: string,
-  text: string,
-): boolean {
-  if (readManaged(file).includes(oneLine(text))) return false;
-  const line = `- ${oneLine(text)}`;
-  const src = existsSync(file) ? readFileSync(file, "utf8") : "";
-  const s = src.indexOf(START);
-  const e = src.indexOf(END);
-  let out: string;
-  if (s >= 0 && e > s) {
-    out = `${src.slice(0, e).replace(/\n*$/, "\n")}${line}\n${src.slice(e)}`;
-  } else {
-    const prefix = src.trim() ? src.replace(/\n*$/, "\n\n") : "";
-    out = `${prefix}${heading}\n\n${START}\n${NOTICE}\n${line}\n${END}\n`;
-  }
-  writeFile(file, out);
+export function appendManaged(file: string, heading: string, text: string): boolean {
+  const lines = readManaged(file);
+  if (lines.includes(oneLine(text))) return false;
+  replaceManaged(file, heading, [...lines, oneLine(text)]);
   return true;
 }
 
-/** Replace every managed line, creating the section only when there is something to write. */
-export function replaceManaged(
-  file: string,
-  heading: string,
-  lines: string[],
-): void {
+export function replaceManaged(file: string, heading: string, lines: string[]): void {
   const clean = lines.map(oneLine).filter(Boolean);
   const src = existsSync(file) ? readFileSync(file, "utf8") : "";
-  const s = src.indexOf(START);
-  const e = src.indexOf(END);
-  if (s < 0 || e < s) {
-    for (const l of clean) appendManaged(file, heading, l);
-    return;
-  }
-  const inner = [NOTICE, ...clean.map((l) => `- ${l}`)].join("\n");
-  writeFile(file, `${src.slice(0, s)}${START}\n${inner}\n${src.slice(e)}`);
+  const s = src.indexOf(MANAGED_START), e = src.indexOf(MANAGED_END);
+  const block = [MANAGED_START,
+    "<!-- Managed by pi-notebook. Edit with /nb:remember or /nb:prefs. -->",
+    ...clean.map((l) => `- ${l}`), MANAGED_END].join("\n");
+  if (s >= 0 && e > s)
+    writeFile(file, `${src.slice(0, s)}${block}${src.slice(e + MANAGED_END.length)}`);
+  else if (clean.length)
+    writeFile(file, `${src.trimEnd()}${src.trim() ? "\n\n" : ""}${heading}\n\n${block}\n`);
 }
-
-// Handoff
 
 export interface Handoff {
   goal: string;
@@ -453,11 +368,8 @@ export interface Handoff {
 }
 
 const HANDOFF_SECTIONS: [keyof Handoff, string][] = [
-  ["goal", "Goal"],
-  ["status", "Status"],
-  ["nextSteps", "Next steps"],
-  ["blockers", "Blockers"],
-  ["notes", "Notes"],
+  ["goal", "Goal"], ["status", "Status"], ["nextSteps", "Next actions"],
+  ["blockers", "Blockers"], ["notes", "Notes"],
 ];
 
 export function handoffPath(scope: Scope): string {
@@ -465,60 +377,38 @@ export function handoffPath(scope: Scope): string {
 }
 
 export function readHandoff(scope: Scope): Handoff | undefined {
-  const path = handoffPath(scope);
-  if (!existsSync(path)) return undefined;
-  const { meta, body } = parseFrontmatter(readFileSync(path, "utf8"));
+  if (!existsSync(handoffPath(scope))) return undefined;
+  const { meta, body } = parseFrontmatter(readFileSync(handoffPath(scope), "utf8"));
   const h: Handoff = {
-    goal: "",
-    status: "",
-    nextSteps: [],
-    blockers: [],
-    notes: "",
-    updated: meta.updated ?? "",
+    goal: "", status: "", nextSteps: [], blockers: [], notes: "", updated: meta.updated ?? "",
   };
-  const parts = body.split(/^## /m).slice(1);
-  for (const part of parts) {
+  for (const part of body.split(/^## /m).slice(1)) {
     const nl = part.indexOf("\n");
     const title = (nl < 0 ? part : part.slice(0, nl)).trim();
     const content = nl < 0 ? "" : part.slice(nl + 1).trim();
     const key = HANDOFF_SECTIONS.find(([, t]) => t === title)?.[0];
-    if (!key) continue;
-    if (key === "nextSteps" || key === "blockers") {
-      h[key] = content
-        .split("\n")
-        .map((l) => l.replace(/^\s*-\s*/, "").trim())
-        .filter(Boolean);
-    } else if (key !== "updated") {
-      h[key] = content;
-    }
+    if (key === "nextSteps" || key === "blockers")
+      h[key] = content.split("\n").map((l) => l.replace(/^\s*-\s*/, "").trim()).filter(Boolean);
+    else if (key && key !== "updated") h[key] = content;
   }
   return h;
 }
 
 export function writeHandoff(scope: Scope, h: Handoff): void {
-  const sections: string[] = [];
+  const sections = ["# Current handoff"];
   for (const [key, title] of HANDOFF_SECTIONS) {
     const value = h[key];
     if (Array.isArray(value)) {
-      if (value.length)
-        sections.push(
-          `## ${title}\n\n${value.map((v) => `- ${oneLine(v)}`).join("\n")}`,
-        );
-    } else if (value.trim()) {
-      sections.push(`## ${title}\n\n${value.trim()}`);
-    }
+      if (value.length) sections.push(`## ${title}\n\n${value.map((v) => `- ${oneLine(v)}`).join("\n")}`);
+    } else if (value.trim()) sections.push(`## ${title}\n\n${value.trim()}`);
   }
-  writeFile(
-    handoffPath(scope),
-    renderFrontmatter({ updated: h.updated }, sections.join("\n\n")),
-  );
+  writeFile(handoffPath(scope), renderFrontmatter({ updated: h.updated }, sections.join("\n\n")));
+  refreshIndex(scope);
 }
 
 export function initScope(scope: Scope): void {
-  mkdirSync(join(scope.dir, DIRS.decision), { recursive: true });
-  mkdirSync(join(scope.dir, DIRS.lesson), { recursive: true });
-  mkdirSync(join(scope.dir, DIRS.note), { recursive: true });
-  const ignore = join(scope.dir, ".gitignore");
-  if (scope.mode === "repo" && !existsSync(ignore))
-    writeFileSync(ignore, "handoff.md\n");
+  mkdirSync(join(scope.dir, "memories"), { recursive: true });
+  if (scope.mode === "repo" && !existsSync(join(scope.dir, ".gitignore")))
+    writeFileSync(join(scope.dir, ".gitignore"), "handoff.md\n");
+  refreshIndex(scope);
 }

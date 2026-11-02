@@ -6,7 +6,7 @@ import { listAll, parseRef, ref } from "../store.ts";
 export function registerForgetCommand(rt: Runtime): void {
   rt.pi.registerCommand("nb:forget", {
     description:
-      "Retire notebook decisions, lessons or notes, e.g. /nb:forget D3 L1 no longer true",
+      "Archive obsolete memories, e.g. /nb:forget M3 M1 no longer true",
     getArgumentCompletions: (prefix) => {
       if (/\s/.test(prefix.trimStart())) return [];
       const { scope, global } = locate(process.cwd());
@@ -25,7 +25,7 @@ export function registerForgetCommand(rt: Runtime): void {
       const refs = n < 0 ? words : words.slice(0, n);
       if (refs.length === 0) {
         ctx.ui.notify(
-          "Usage: /nb:forget <refs> [reason], e.g. /nb:forget D3 no longer true",
+          "Usage: /nb:forget <refs> [reason], e.g. /nb:forget M3 no longer true",
           "warning",
         );
         return;

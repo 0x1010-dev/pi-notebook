@@ -2,7 +2,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerForgetCommand } from "./commands/forget.ts";
 import { registerInitCommand } from "./commands/init.ts";
 import { registerPromptCommands } from "./commands/prompts.ts";
-import { registerPrefsCommand, registerRememberCommand } from "./commands/rules.ts";
+import {
+  registerPrefsCommand,
+  registerRememberCommand,
+} from "./commands/rules.ts";
 import { registerShowCommand } from "./commands/show.ts";
 import { registerPromptEvents } from "./events/prompt.ts";
 import { registerSessionEvents } from "./events/session.ts";
