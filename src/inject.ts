@@ -64,8 +64,8 @@ export function buildSection(input: InjectInput): string {
   }
   if (scope?.mode === "local")
     for (const rule of readManaged(scope.agentsFile)) push(`Project rule: ${rule}`);
-  const projectEntries = scope ? listAll(scope).filter((e) => e.status === "active") : [];
-  const globalEntries = listAll(global).filter((e) => e.status === "active");
+  const projectEntries = scope ? listAll(scope) : [];
+  const globalEntries = listAll(global);
   const entries = [...projectEntries, ...globalEntries.slice(0, input.globalLimit)]
     .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
   let shown = 0;

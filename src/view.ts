@@ -143,7 +143,6 @@ export class NotebookView {
   private offset = 0;
   private selected = 0;
   private open = new Set<string>();
-  private showInactive = false;
 
   constructor(
     private data: ViewData,
@@ -169,7 +168,6 @@ export class NotebookView {
 
   private listed(tab: Tab): Entry[] {
     return (tab.entries ?? [])
-      .filter((e) => this.showInactive || e.status === "active")
       .sort(newestFirst);
   }
 
@@ -215,9 +213,6 @@ export class NotebookView {
       if (e) {
         if (!this.open.delete(e.path)) this.open.add(e.path);
       }
-    } else if (isList && key === "x") {
-      this.showInactive = !this.showInactive;
-      this.selected = 0;
     } else return;
     this.tui.requestRender();
   }
@@ -236,7 +231,7 @@ export class NotebookView {
     const bar = tabs
       .map((t, i) => {
         const n = t.entries
-          ? ` ${t.entries.filter((e) => e.status === "active").length}`
+          ? ` ${t.entries.length}`
           : "";
         return i === this.tab
           ? th.fg("accent", th.bold(`[${t.label}${n}]`))
@@ -260,7 +255,7 @@ export class NotebookView {
         ? `${this.offset + 1}–${this.offset + shown.length} of ${body.lines.length} lines · `
         : "";
     const keys = tab.entries
-      ? "↑↓ select · enter open · x retired · ←→ tab · esc close"
+      ? "↑↓ select · enter open · ←→ tab · esc close"
       : "↑↓ scroll · ←→ tab · esc close";
 
     return [
@@ -285,15 +280,11 @@ export class NotebookView {
     let anchor: [number, number] | undefined;
     items.forEach((e, i) => {
       const start = lines.length;
-      const active = e.status === "active";
-      const state = active
-        ? ""
-        : ` [retired${e.retiredReason ? `: ${e.retiredReason}` : ""}]`;
       const mark = i === this.selected ? th.fg("accent", "▸") : " ";
       lines.push(
         ...hang(
           ` ${mark} ${th.fg("accent", ref(e).padEnd(5))} `,
-          `${th.fg(active ? "text" : "dim", e.title)}  ${th.fg("dim", e.date + state)}`,
+          `${th.fg("text", e.title)}  ${th.fg("dim", e.date)}`,
           width,
         ),
       );
@@ -376,7 +367,6 @@ export class NotebookView {
       lines.push("");
 
       const active = data.projectEntries
-        .filter((e) => e.status === "active")
         .sort(newestFirst);
       lines.push(heading(th, "Memories", `${active.length} active`));
       this.previewEntries(lines, active.slice(0, 3), width);
@@ -387,7 +377,6 @@ export class NotebookView {
     }
 
     const global = data.globalEntries
-      .filter((e) => e.status === "active")
       .sort(newestFirst);
     lines.push(heading(th, "Global", `${global.length} active`));
     this.previewEntries(lines, global.slice(0, 2), width);

@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { MANAGED_END, MANAGED_START } from "./store.ts";
 
 export const FILES_REASON =
-  'Use memory_save, memory_retire or handoff_update for model writes to the notebook. Reading and browsing notebook files is allowed; humans can edit memory files freely.';
+  'Use memory_save, memory_delete or handoff_update for model writes to the notebook. Reading and browsing notebook files is allowed; humans can edit memory files freely.';
 
 export const MANAGED_WARNING =
   "Note: this change touched the pi-notebook section of AGENTS.md. Prefer memory_save with kind rule for user-approved additions there. If the change was intentional, carry on.";

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Scope } from "./paths.ts";
 import {
   appendManaged, getEntry, initScope, keywords, listAll, normalizeTags,
   parseRef, preview, readHandoff, readManaged, recall, ref, refreshIndex,
-  replaceManaged, retireEntry, revision, saveEntry, searchEntries, updateEntry, writeHandoff,
+  replaceManaged, deleteEntry, revision, saveEntry, searchEntries, updateEntry, writeHandoff,
 } from "./store.ts";
 
 const root = mkdtempSync(join(tmpdir(), "nb-store-"));
@@ -57,19 +57,33 @@ test("updates keep references and omitted fields, and allow clearing metadata", 
   assert.deepEqual(getEntry(s, e.id)?.files, []);
 });
 
-test("archive removes ordinary search results, keeps explicit access and IDs", () => {
+test("deletion removes files and refs permanently without reusing IDs", () => {
   const s = scope();
   const e = saveEntry(s, "Database", "SQLite needs no server.");
-  retireEntry(s, e.id, "Replaced.");
-  assert.match(getEntry(s, e.id)!.path, /archive\//);
-  assert.equal(getEntry(s, e.id)?.status, "retired");
+  deleteEntry(s, e.id);
+  assert.equal(getEntry(s, e.id), undefined);
+  assert.equal(existsSync(e.path), false);
+  assert.equal(existsSync(join(s.dir, "archive")), false);
   assert.deepEqual(searchEntries([s], "database"), []);
-  assert.equal(searchEntries([s], "database", 8, { includeRetired: true }).length, 1);
   assert.deepEqual(recall([s], "database", 3), []);
   assert.doesNotMatch(readFileSync(join(s.dir, "README.md"), "utf8"), /M1:/);
   assert.equal(saveEntry(s, "New", "New content.").id, 2);
-  assert.throws(() => updateEntry(s, e.id, { title: "No" }), /retired/);
+  assert.throws(() => updateEntry(s, e.id, { title: "No" }), /not found/);
   assert.throws(() => updateEntry(s, 99, {}), /not found/);
+});
+
+test("deletion of converted memories reserves IDs and ignores old archive collections", () => {
+  const s = scope();
+  initScope(s);
+  writeFileSync(join(s.dir, "memories/0042-converted.md"), "# Converted\n\nCurrent knowledge.\n");
+  mkdirSync(join(s.dir, "archive"));
+  writeFileSync(join(s.dir, "archive/0099-old.md"), "# Old\n\nHistorical knowledge.\n");
+  assert.deepEqual(listAll(s).map((e) => e.id), [42]);
+  deleteEntry(s, 42);
+  assert.equal(saveEntry(s, "New", "New knowledge.").id, 43);
+  deleteEntry(s, 43);
+  assert.equal(saveEntry(s, "Next", "Next knowledge.").id, 44);
+  assert.throws(() => deleteEntry(s, 42), /not found/);
 });
 
 test("invalid or duplicate memory files fail explicitly", () => {
@@ -127,12 +141,12 @@ test("tags and project paths retrieve memories with explicit AND tag constraints
   assert.equal(recall([s], "src/tui", 3).length, 2);
 });
 
-test("inactive and already-delivered candidates cannot crowd out eligible memories", () => {
+test("deleted and already-delivered candidates cannot crowd out eligible memories", () => {
   const s = scope();
   const target = saveEntry(s, "SQLite choice", "Use the local database.");
   for (let i = 0; i < 10; i++) {
     const e = saveEntry(s, "SQLite migrations locking rollback backup", "SQLite migrations locking rollback backup");
-    retireEntry(s, e.id, "Old.");
+    deleteEntry(s, e.id);
   }
   const newer = saveEntry(s, "SQLite migrations", "SQLite migration guidance.");
   const hits = recall([s], "SQLite", 1, (e) => e.id === newer.id);

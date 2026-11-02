@@ -12,13 +12,9 @@ export function entryLabel(e: Entry): string {
   return `${ref(e)} ${e.title}`;
 }
 
-/** A reference, title, state and timestamp. */
+/** A reference, title and timestamp. */
 export function entryHead(e: Entry): string {
-  const state =
-    e.status === "retired" && e.retiredReason
-      ? `retired: ${e.retiredReason}`
-      : e.status;
-  return `${ref(e)} [${state}] ${e.title} (${e.date})`;
+  return `${ref(e)} ${e.title} (${e.date})`;
 }
 
 /** Retrieval metadata and code-staleness warnings. */

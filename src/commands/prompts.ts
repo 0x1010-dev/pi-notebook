@@ -28,7 +28,7 @@ export function registerPromptCommands(rt: Runtime): void {
 
   rt.pi.registerCommand("nb:curate", {
     description:
-      "Reconcile current knowledge, verify claims and archive obsolete memories",
+      "Reconcile current knowledge, verify claims and delete obsolete memories",
     handler: async (_args, ctx) => {
       const { scope, global } = locate(ctx.cwd);
       const scopes = [scope, global].filter((s): s is Scope => !!s);

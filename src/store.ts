@@ -4,7 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  renameSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -15,12 +15,10 @@ export interface Entry {
   scope: ScopeKind;
   id: number;
   title: string;
-  status: "active" | "retired";
   date: string;
   tags: string[];
   files?: string[];
   commit?: string;
-  retiredReason?: string;
   body: string;
   path: string;
 }
@@ -85,41 +83,45 @@ function writeEntry(e: Entry): void {
     tags: e.tags.length ? JSON.stringify(e.tags) : undefined,
     files: e.files?.length ? JSON.stringify(e.files) : undefined,
     commit: e.commit,
-    retired_reason: e.retiredReason ? JSON.stringify(e.retiredReason) : undefined,
   }, `# ${e.title}\n\n${e.body}`));
 }
 
 export function listAll(scope: Scope): Entry[] {
   const entries: Entry[] = [];
-  for (const status of ["active", "retired"] as const) {
-    const dir = join(scope.dir, status === "active" ? "memories" : "archive");
-    if (!existsSync(dir)) continue;
-    for (const name of readdirSync(dir).sort()) {
-      const m = /^(\d+)-.*\.md$/.exec(name);
-      if (!m) continue;
-      const path = join(dir, name);
-      const { meta, body } = parseFrontmatter(readFileSync(path, "utf8"));
-      const heading = /^# ([^\n]+)\n?([\s\S]*)$/.exec(body);
-      const id = Number(m[1]);
-      if (!heading || !heading[1].trim() || !Number.isSafeInteger(id) || id < 1)
-        throw new Error(`Invalid memory ${path}: expected a numeric filename and a # title.`);
-      if (entries.some((e) => e.id === id))
-        throw new Error(`Duplicate memory ID M${id} in ${scope.dir}.`);
-      const retiredReason: unknown = meta.retired_reason ? JSON.parse(meta.retired_reason) : undefined;
-      if (retiredReason !== undefined && typeof retiredReason !== "string")
-        throw new Error(`Invalid retired_reason in ${path}: expected a string.`);
-      entries.push({
-        scope: scope.kind, id, status, path,
-        title: heading[1].trim(), body: heading[2].trim(),
-        date: meta.updated ?? "",
-        tags: normalizeTags(stringList(meta.tags, "tags", path)),
-        files: stringList(meta.files, "files", path),
-        commit: meta.commit,
-        retiredReason,
-      });
-    }
+  const dir = join(scope.dir, "memories");
+  if (!existsSync(dir)) return [];
+  for (const name of readdirSync(dir).sort()) {
+    const m = /^(\d+)-.*\.md$/.exec(name);
+    if (!m) continue;
+    const path = join(dir, name);
+    const { meta, body } = parseFrontmatter(readFileSync(path, "utf8"));
+    const heading = /^# ([^\n]+)\n?([\s\S]*)$/.exec(body);
+    const id = Number(m[1]);
+    if (!heading || !heading[1].trim() || !Number.isSafeInteger(id) || id < 1)
+      throw new Error(`Invalid memory ${path}: expected a numeric filename and a # title.`);
+    if (entries.some((e) => e.id === id))
+      throw new Error(`Duplicate memory ID M${id} in ${scope.dir}.`);
+    entries.push({
+      scope: scope.kind, id, path,
+      title: heading[1].trim(), body: heading[2].trim(),
+      date: meta.updated ?? "",
+      tags: normalizeTags(stringList(meta.tags, "tags", path)),
+      files: stringList(meta.files, "files", path),
+      commit: meta.commit,
+    });
   }
   return entries.sort((a, b) => a.id - b.id);
+}
+
+function reserveId(scope: Scope, allocate = true): number {
+  const path = join(scope.dir, ".next-id");
+  const next = existsSync(path) ? Number(readFileSync(path, "utf8").trim()) : 1;
+  if (!Number.isSafeInteger(next) || next < 1)
+    throw new Error(`Invalid memory ID counter: ${path}`);
+  const id = Math.max(next, ...listAll(scope).map((e) => e.id + 1));
+  if (!Number.isSafeInteger(id + 1)) throw new Error("Memory ID counter exhausted.");
+  writeFile(path, `${allocate ? id + 1 : id}\n`);
+  return id;
 }
 
 export function getEntry(scope: Scope, id: number): Entry | undefined {
@@ -136,11 +138,11 @@ export function saveEntry(
   scope: Scope, title: string, body: string, meta: MemoryMeta = {}, now = new Date(),
 ): Entry {
   if (!title.trim() || !body.trim()) throw new Error("A memory needs a title and content.");
-  const id = listAll(scope).reduce((max, e) => Math.max(max, e.id), 0) + 1;
+  const id = reserveId(scope);
   const cleanTitle = oneLine(title);
   const entry: Entry = {
     scope: scope.kind, id, title: cleanTitle, body: body.trim(),
-    status: "active", date: now.toISOString(), tags: normalizeTags(meta.tags ?? []),
+    date: now.toISOString(), tags: normalizeTags(meta.tags ?? []),
     files: meta.files, commit: meta.commit,
     path: join(scope.dir, "memories", `${String(id).padStart(4, "0")}-${slugify(cleanTitle)}.md`),
   };
@@ -155,7 +157,6 @@ export function updateEntry(
 ): Entry {
   const entry = getEntry(scope, id);
   if (!entry) throw new Error(`M${id} not found.`);
-  if (entry.status !== "active") throw new Error(`M${id} is retired; save a new memory instead.`);
   if (patch.title !== undefined && !patch.title.trim() ||
       patch.body !== undefined && !patch.body.trim())
     throw new Error("A memory needs a title and content.");
@@ -173,21 +174,18 @@ export function updateEntry(
   return updated;
 }
 
-export function retireEntry(scope: Scope, id: number, reason: string): void {
+export function deleteEntry(scope: Scope, id: number): void {
   const entry = getEntry(scope, id);
   if (!entry) throw new Error(`M${id} not found.`);
-  if (entry.status === "retired") return;
-  const archived = { ...entry, status: "retired" as const, retiredReason: oneLine(reason) };
-  writeEntry(archived);
-  const target = join(scope.dir, "archive", entry.path.slice(entry.path.lastIndexOf("/") + 1));
-  mkdirSync(dirname(target), { recursive: true });
-  renameSync(entry.path, target);
+  // Reserve above every existing ID before removing a file, including converted notebooks.
+  reserveId(scope, false);
+  unlinkSync(entry.path);
   refreshIndex(scope);
 }
 
 export function revision(e: Entry): string {
   return createHash("sha1").update(JSON.stringify([
-    e.path, e.title, e.body, e.tags, e.files, e.commit, e.status,
+    e.path, e.title, e.body, e.tags, e.files, e.commit,
   ])).digest("hex");
 }
 
@@ -205,7 +203,7 @@ function markdownText(text: string): string {
 
 export function refreshIndex(scope: Scope): void {
   if (!existsSync(scope.dir)) return;
-  const entries = listAll(scope).filter((e) => e.status === "active");
+  const entries = listAll(scope);
   const lines = ["# Notebook", "", "Durable knowledge for future work. Edit memory files freely; this index is generated.", ""];
   if (existsSync(handoffPath(scope))) lines.push("[Current handoff](handoff.md)", "");
   if (!entries.length) lines.push("No memories yet.");
@@ -250,7 +248,6 @@ export interface SearchHit {
 }
 
 interface SearchOptions {
-  includeRetired?: boolean;
   exclude?: (entry: Entry) => boolean;
 }
 
@@ -263,7 +260,6 @@ export function searchEntries(
     .map((m) => m[1].replace(/^\.\//, "").toLowerCase());
   if ((!terms.length && !tags.length) || !Number.isFinite(limit) || limit <= 0) return [];
   const entries = scopes.flatMap(listAll).filter((e) =>
-    (options.includeRetired || e.status === "active") &&
     !options.exclude?.(e) && tags.every((t) => e.tags.includes(t)));
   const documents = entries.map((entry) => ({
     entry,
@@ -298,7 +294,6 @@ export function searchEntries(
       for (const f of found) matches.add(`${f.name}:${term}`);
     }
     if (!matches.size) continue;
-    if (entry.status === "retired") score *= 0.3;
     hits.push({ entry, score, matches: [...matches], snippet: preview(entry) });
   }
   return hits.sort((a, b) => b.score - a.score ||

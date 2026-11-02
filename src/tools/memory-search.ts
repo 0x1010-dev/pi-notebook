@@ -64,7 +64,7 @@ export function registerMemorySearch(rt: Runtime): void {
     name: "memory_search",
     label: "Notebook",
     description:
-      'Search durable knowledge or read the current handoff. Use keywords (including file paths), #tags, refs like "M3 ~M1" for full memories, "*" to browse, or "handoff". Retired memories are hidden unless include_retired is true or requested by ref.',
+      'Search current durable knowledge or read the handoff. Use keywords (including file paths), #tags, refs like "M3 ~M1" for full memories, "*" to browse, or "handoff".',
     promptSnippet:
       "memory_search: search or list the notebook, read entries by ref, or read the project handoff",
     parameters: Type.Object({
@@ -74,7 +74,6 @@ export function registerMemorySearch(rt: Runtime): void {
       limit: Type.Optional(
         Type.Integer({ minimum: 1, maximum: 100, description: "Max keyword results, default 8" }),
       ),
-      include_retired: Type.Optional(Type.Boolean({ description: "Include archived memories in search and listings, default false." })),
     }),
 
     async execute(_id, p, _signal, _onUpdate, ctx): Promise<SearchOutput> {
@@ -89,8 +88,7 @@ export function registerMemorySearch(rt: Runtime): void {
       const q = parseQuery(p.query);
 
       if (q.mode === "all") {
-        const all = scopes.flatMap((s) => listAll(s))
-          .filter((e) => p.include_retired || e.status === "active");
+        const all = scopes.flatMap((s) => listAll(s));
         const list = all.length
           ? all.map((e) => `${entryHead(e)}\n  ${e.tags.map((t) => `#${t}`).join(" ")}\n  ${preview(e)}`).join("\n\n")
           : "The notebook is empty.";
@@ -119,9 +117,7 @@ export function registerMemorySearch(rt: Runtime): void {
         return { content: text(read.body), details: { refs: read.refs } };
       }
 
-      const hits = searchEntries(scopes, q.words.join(" "), p.limit ?? 8, {
-        includeRetired: p.include_retired,
-      });
+      const hits = searchEntries(scopes, q.words.join(" "), p.limit ?? 8);
       const body = hits.length
         ? `${hits.map((hit) => [entryHead(hit.entry), ...noteLines(ctx.cwd, hit.entry), hit.snippet, `Matched: ${hit.matches.join(", ")}`].join("\n")).join("\n\n")}\n\nPass refs to read entries in full.`
         : 'No matches. Try other keywords, or "*" to list every entry.';

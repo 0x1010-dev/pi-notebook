@@ -34,7 +34,7 @@ export function registerMemorySave(rt: Runtime): void {
       "Put the actionable conclusion first, then supporting reasons or evidence. Save what changes a future action or prevents costly rediscovery; saving nothing is fine.",
       "Keep one coherent topic current: update it rather than appending a changelog. When correcting a claim, reconcile related memories that repeat it. Do not present guesses as verified facts.",
       "Optional tags help retrieval; reuse existing terms. Optional files identify related project paths.",
-      "Use kind rule only for explicit lasting user instructions; rules are always available. Rules and global memories require user confirmation. Temporary progress belongs in handoff_update.",
+      "Use kind rule only for explicit lasting user instructions; rules are always available. The user can approve global saves, keep them project-only, or reject them. Respect their scope choice without retrying. Temporary progress belongs in handoff_update.",
     ].join("\n"),
     promptSnippet: "memory_save: save or update durable knowledge; optionally record a user-approved rule",
     parameters: Type.Object({
@@ -58,7 +58,8 @@ export function registerMemorySave(rt: Runtime): void {
       const parsed = p.ref ? parseRef(p.ref) : undefined;
       if (p.ref && !parsed) throw new Error('Invalid ref. Use M3 or ~M1; list refs with memory_search "*".');
       if (p.ref && p.kind === "rule") throw new Error("Rules are edited with /nb:prefs, not a memory ref.");
-      const globalTarget = parsed ? parsed.global : p.scope === "global";
+      let globalTarget = parsed ? parsed.global : p.scope === "global";
+      const proposedGlobal = globalTarget;
       if (parsed && p.scope && (p.scope === "global") !== parsed.global)
         throw new Error("scope conflicts with ref; omit scope when updating.");
       const title = p.title === undefined ? undefined : oneLine(p.title);
@@ -73,9 +74,31 @@ export function registerMemorySave(rt: Runtime): void {
       if ((globalTarget || p.kind === "rule") && !ctx.hasUI)
         throw new Error("Rules and global memories need user confirmation, unavailable in this mode.");
       if (!globalTarget && !project) throw new Error("Not in a project. Use scope global only for knowledge that applies across projects.");
+      const originalScope = parsed?.global ? global : existing;
+      const original = parsed && originalScope ? getEntry(originalScope, parsed.id) : undefined;
+      if (parsed && !original) throw new Error(`${p.ref} not found.`);
+      let previous = original;
+      let projectCopy = false;
+      if (globalTarget) {
+        const globalOption = original ? "Update globally" : "Save globally";
+        const projectOption = original
+          ? "Save a project-only copy (leave global memory unchanged)"
+          : "Save to this project only";
+        const choice = await ctx.ui.select(
+          `${original ? `Update ${ref(original)}` : p.kind === "rule" ? "Save rule" : "Save memory"}?\n\n${title ?? original?.title}\n\n${clip(body ?? original?.body ?? "", CONFIRM_PREVIEW_CHARS)}`,
+          [globalOption, ...(project ? [projectOption] : []), "Reject"],
+        );
+        if (choice !== globalOption && choice !== projectOption)
+          return { content: text("The user rejected or cancelled this save. Do not retry."), details: { declined: true } };
+        if (choice === projectOption && project) {
+          globalTarget = false;
+          projectCopy = !!original;
+          previous = undefined;
+        }
+      }
       let scope = globalTarget ? global : existing;
       if (!scope) {
-        if (p.ref) throw new Error(`${p.ref} not found: this project has no notebook.`);
+        if (p.ref && !projectCopy) throw new Error(`${p.ref} not found: this project has no notebook.`);
         const result = await resolveProjectScope(ctx, project!, rt.session.cfg.storage);
         if (!("scope" in result))
           return { content: text("The user declined this project notebook. Do not retry."), details: { declined: true } };
@@ -83,29 +106,22 @@ export function registerMemorySave(rt: Runtime): void {
       }
       if (p.kind === "rule") {
         const line = oneLine(body ? `${title}: ${body}` : title!);
-        const ok = await ctx.ui.confirm(
+        const ok = proposedGlobal || await ctx.ui.confirm(
           `Save rule ${globalTarget ? "for all projects" : "for this project"}?`, line,
         );
         if (!ok) return { content: text("The user declined. Do not retry."), details: { declined: true } };
         const added = appendManaged(scope.agentsFile, RULE_HEADING[globalTarget ? "preference" : "convention"], line);
         if (added) rt.markSaved(ctx);
-        return { content: text(`${added ? "Saved" : "Already recorded"} rule: ${line}`), details: { label: line } };
+        return { content: text(`${added ? "Saved" : "Already recorded"} ${globalTarget ? "global" : "project"} rule: ${line}`), details: { label: line } };
       }
-      const previous = parsed ? getEntry(scope, parsed.id) : undefined;
-      if (parsed && !previous) throw new Error(`${p.ref} not found.`);
-      if (previous?.status === "retired") throw new Error(`${p.ref} is retired; save a new memory instead.`);
       if (globalTarget && p.files?.length) throw new Error("Related files are project-relative; omit files for global memories.");
-      if (globalTarget) {
-        const ok = await ctx.ui.confirm(previous ? `Update ${ref(previous)} for all projects?` : "Save memory for all projects?",
-          `${title ?? previous?.title}\n\n${clip(body ?? previous?.body ?? "", CONFIRM_PREVIEW_CHARS)}`);
-        if (!ok) return { content: text("The user declined. Do not retry."), details: { declined: true } };
-      }
       const files = p.files && project ? normalizeMemoryFiles(p.files, project.root) : undefined;
       const commit = !globalTarget && project ? headCommit(project.root) : undefined;
       const entry = previous
         ? updateEntry(scope, previous.id, { title, body, tags: p.tags, files,
             commit: body !== undefined || files !== undefined ? commit : previous.commit })
-        : saveEntry(scope, title!, body!, { tags: p.tags, files, commit });
+        : saveEntry(scope, title ?? original!.title, body ?? original!.body,
+            { tags: p.tags ?? original?.tags, files, commit });
       rt.markSaved(ctx);
       const related = searchEntries([scope], [entry.title, ...entry.tags].join(" "), 3,
         { exclude: (e) => e.id === entry.id });
@@ -113,7 +129,7 @@ export function registerMemorySave(rt: Runtime): void {
         ? `\nRelated memories (check only if useful): ${related.map((h) => `${ref(h.entry)} ${h.entry.title}`).join("; ")}.`
         : "";
       return {
-        content: text(`${previous ? "Updated" : "Saved"} ${ref(entry)} "${entry.title}".${advice}`),
+        content: text(`${previous ? "Updated" : "Saved"} ${ref(entry)} "${entry.title}" ${globalTarget ? "globally" : "for this project only"}.${projectCopy ? ` Global memory ${ref(original!)} was left unchanged.` : ""}${advice}`),
         details: { label: `${ref(entry)} ${entry.title}` },
       };
     },

@@ -42,7 +42,6 @@ const entry = (
   scope,
   id,
   title: `Memory ${id}`,
-  status: "active",
   date: "2026-01-01",
   body: `Conclusion ${id}. Supporting details follow.`,
   path: `/x/memory-${id}.md`,
@@ -70,7 +69,6 @@ const base: ViewData = {
   },
   projectEntries: [
     entry(1, "project", { files: ["src/auth.ts"] }),
-    entry(2, "project", { status: "retired", retiredReason: "Replaced" }),
   ],
   globalEntries: [entry(3, "global")],
   handoff: handoff(),
@@ -117,7 +115,7 @@ test("startup summary without a handoff or active entries is skipped", () => {
     startupSummary({
       project: base.project!,
       scope: base.scope!,
-      entries: base.projectEntries.map((e) => ({ ...e, status: "retired" })),
+      entries: [],
     }),
     undefined,
   );

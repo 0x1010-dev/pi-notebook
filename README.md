@@ -38,7 +38,6 @@ the extension does not determine truth.
   memories/
     0001-braille-rendering.md
     0002-deployment-verification.md
-  archive/                          retired memories, outside ordinary recall
 ```
 
 Each memory has a Markdown heading, conclusion-first content, and small optional
@@ -96,9 +95,13 @@ memory save offers to create one. `local` storage keeps the same layout under
 - Tags and project-relative files or directories are optional. Missing paths are
   retained; paths outside the project are rejected.
 - `scope: "global"` stores knowledge that applies across projects and asks for
-  confirmation on every save or update. Global refs look like `~M1`.
+  a choice on every save or update: **Save globally**, **Save to this project
+  only**, or **Reject**. Project-only is offered when inside a project. For a
+  global update, project-only saves a local copy with the proposed changes and
+  leaves the global original unchanged. Global refs look like `~M1`.
 - `kind: "rule"` records a short explicit user instruction. Project is the default
-  scope; global rules apply everywhere. The user confirms each addition.
+  scope; global rules apply everywhere. The user confirms each addition, with
+  the same project-only or reject choices for global rule proposals.
 - Related memories are advisory: a similar title does not block saving.
 - Secret-looking values are rejected. There are no hard title/content length caps.
 
@@ -109,8 +112,6 @@ memory save offers to create one. `local` storage keeps the same layout under
   also match tags without `#`.
 - Refs: `"M1 ~M2"` reads full memories.
 - `"*"` browses active memories with previews; `"handoff"` reads the full handoff.
-- `include_retired: true` includes archived memories in search and listings.
-  Archived memories remain readable directly by ref.
 
 Ranking uses normalized tokens, term rarity, and title/tag/path/content weights.
 Results show previews and matching fields. Code-linked memories carry warnings
@@ -124,11 +125,13 @@ Optional `blockers` and `notes` are cleared when omitted. This deliberately avoi
 silently retaining contradictory fragments. Empty next actions mean work is done.
 The result echoes the whole handoff for review.
 
-### `memory_retire`
+### `memory_delete`
 
-Pass `refs` and a reason. The user confirms; files move to `archive/`, keep their
-IDs, and leave the generated index, ordinary search, and automatic recall.
-Correct knowledge with `memory_save` instead of retiring it unnecessarily.
+Pass `refs` and a reason. The user must confirm permanent removal of the files.
+There is no notebook archive or undo; recovery requires Git or your own backup.
+Deleted IDs are not reused. Keep `.next-id` with the notebook when moving or
+backing it up. Correct knowledge with `memory_save` rather than deleting it
+unnecessarily, and preserve still-current facts before removing mixed-topic entries.
 
 ## Automatic behavior
 
@@ -152,11 +155,11 @@ There is no automatic extraction or verification by another model.
 
 | Command | Purpose |
 | --- | --- |
-| `/nb` | Browse Overview, Memories, Global and Rules; arrows navigate, enter expands, `x` includes retired entries |
+| `/nb` | Browse Overview, Memories, Global and Rules; arrows navigate, enter expands |
 | `/nb:init [repo\|local]` | Create a notebook |
 | `/nb:remember <text>` | Add a user rule without the model |
 | `/nb:prefs` | Edit rules |
-| `/nb:forget M1 [reason]` | Archive obsolete memories |
+| `/nb:forget M1 [reason]` | Permanently delete obsolete memories after confirmation |
 | `/nb:learn [topic]` | Look for useful knowledge gaps, not comprehensive documentation |
 | `/nb:wrap` | Save worthwhile knowledge and reconcile unfinished work |
 | `/nb:curate` | Verify claims, reconcile contradictions and consolidate current knowledge |
@@ -235,6 +238,11 @@ searches. Back up the entire live notebook and rules independently before manual
 installing the reviewed `notebook/` contents. Keep the originals for rollback.
 Nothing is activated automatically.
 
+The live notebook keeps current knowledge only. Existing `archive/` directories
+from an earlier version are not read, searched or deleted automatically; move
+them outside the notebook or remove them after reviewing your backups. Migration
+`originals/` are likewise review/rollback material, not a permanent memory tier.
+
 ## Development and evaluation
 
 ```sh
@@ -244,7 +252,7 @@ npm test
 pi --extension ./src/index.ts
 ```
 
-Tests cover storage, registered tools, human edits, retirement, recall delivery,
+Tests cover storage, registered tools, human edits, confirmed deletion, recall delivery,
 compaction, budgets, and browser rendering. A small synthetic retrieval evaluation
 enforces Recall@3 >= 0.90 and irrelevant-injection rate <= 0.20. It is a regression
 check, not a model benchmark. Lexical retrieval can still miss paraphrases with no

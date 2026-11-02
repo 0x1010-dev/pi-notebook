@@ -23,7 +23,7 @@ export interface StatusInfo {
 }
 
 export function counts(entries: Entry[]): number {
-  return entries.filter((e) => e.status === "active").length;
+  return entries.length;
 }
 
 function summary(th: Theme, entries: Entry[]): string {

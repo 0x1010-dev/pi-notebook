@@ -1,4 +1,4 @@
-import { retireRefs } from "../flows/retire.ts";
+import { deleteRefs } from "../flows/delete.ts";
 import type { Scope } from "../paths.ts";
 import { locate, type Runtime } from "../runtime.ts";
 import { listAll, parseRef, ref } from "../store.ts";
@@ -6,7 +6,7 @@ import { listAll, parseRef, ref } from "../store.ts";
 export function registerForgetCommand(rt: Runtime): void {
   rt.pi.registerCommand("nb:forget", {
     description:
-      "Archive obsolete memories, e.g. /nb:forget M3 M1 no longer true",
+      "Permanently delete obsolete memories after confirmation, e.g. /nb:forget M3 no longer true",
     getArgumentCompletions: (prefix) => {
       if (/\s/.test(prefix.trimStart())) return [];
       const { scope, global } = locate(process.cwd());
@@ -15,7 +15,7 @@ export function registerForgetCommand(rt: Runtime): void {
         .filter((s): s is Scope => !!s)
         .flatMap((s) => listAll(s))
         .filter(
-          (e) => e.status === "active" && ref(e).toLowerCase().startsWith(want),
+          (e) => ref(e).toLowerCase().startsWith(want),
         )
         .map((e) => ({ value: ref(e), label: `${ref(e)} ${e.title}` }));
     },
@@ -31,9 +31,9 @@ export function registerForgetCommand(rt: Runtime): void {
         return;
       }
       const reason = n < 0 ? "" : words.slice(n).join(" ");
-      const r = await retireRefs(rt, ctx, refs, reason);
+      const r = await deleteRefs(rt, ctx, refs, reason);
       if (!r.declined)
-        ctx.ui.notify(`◆ ${r.message}`, r.retired.length ? "info" : "warning");
+        ctx.ui.notify(`◆ ${r.message}`, r.deleted.length ? "info" : "warning");
     },
   });
 }

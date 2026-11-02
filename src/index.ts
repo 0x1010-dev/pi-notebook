@@ -13,7 +13,7 @@ import { registerToolEvents } from "./events/tools.ts";
 import { registerTurnEvents } from "./events/turns.ts";
 import { createRuntime } from "./runtime.ts";
 import { registerHandoffUpdate } from "./tools/handoff-update.ts";
-import { registerMemoryRetire } from "./tools/memory-retire.ts";
+import { registerMemoryDelete } from "./tools/memory-delete.ts";
 import { registerMemorySave } from "./tools/memory-save.ts";
 import { registerMemorySearch } from "./tools/memory-search.ts";
 
@@ -28,7 +28,7 @@ export default function notebook(pi: ExtensionAPI): void {
   registerMemorySave(rt);
   registerMemorySearch(rt);
   registerHandoffUpdate(rt);
-  registerMemoryRetire(rt);
+  registerMemoryDelete(rt);
 
   registerShowCommand(rt);
   registerInitCommand(rt);
