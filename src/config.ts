@@ -36,7 +36,7 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   injectBudgetTokens: 1500,
   globalIndexLimit: 20,
   nudgeCooldownTurns: 16,
-  contextBands: [50, 70, 85],
+  contextBands: [40, 55, 70],
   nudgeModel: true,
   guard: true,
   refreshSection: "session",

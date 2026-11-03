@@ -88,15 +88,15 @@ test("a stale handoff is still used, with a warning", async () => {
 test("each request past the compaction band carries only a bare usage line", async () => {
   const h = harness();
   const messages = [{ role: "user", content: "hi" }];
-  h.setUsage(72);
+  h.setUsage(60);
   assert.equal(await h.emit("context", { messages }), undefined);
-  h.setUsage(87.4);
+  h.setUsage(77.4);
   const result = await h.emit("context", { messages });
   assert.equal(result.messages.length, 2);
   const note = result.messages.at(-1);
   assert.equal(note.role, "custom");
   assert.equal(note.display, false);
-  assert.equal(note.content, "[pi-notebook] Context window 87% full.");
+  assert.equal(note.content, "[pi-notebook] Context window 77% full.");
   assert.equal(messages.length, 1);
 });
 
@@ -116,13 +116,13 @@ const midRun = { toolResults: [{}] };
 
 test("a band suggestion is sent once per band until compaction", async () => {
   const h = harness();
-  h.setUsage(72);
+  h.setUsage(60);
   const first = await h.emit("turn_end", midRun);
   assert.match(first.entries[0].content, /updating the handoff/);
-  h.setUsage(75);
+  h.setUsage(62);
   assert.equal(await h.emit("turn_end", midRun), undefined);
   h.session.onCompact();
-  h.setUsage(72);
+  h.setUsage(60);
   assert.match((await h.emit("turn_end", midRun)).entries[0].content, /updating the handoff/);
 });
 
@@ -136,7 +136,7 @@ test("jumping past several bands sends only the highest", async () => {
 
 test("a band crossed on the final turn waits for the next prompt", async () => {
   const h = harness();
-  h.setUsage(55);
+  h.setUsage(45);
   assert.equal(await h.emit("turn_end", { toolResults: [] }), undefined);
   assert.match(h.session.pendingNudge!, /durable knowledge/);
 });

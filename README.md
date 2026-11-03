@@ -169,11 +169,11 @@ tool failures or a quota of unsaved turns. They explicitly permit saving nothing
 There is no automatic extraction or verification by another model.
 
 Past the compaction band, each model request carries a bare usage line such as
-`Context window 88% full.` It is not stored in the session, so it neither accumulates nor
+`Context window 74% full.` It is not stored in the session, so it neither accumulates nor
 disturbs prompt caching. The suggested action is sent once when usage first crosses
-each band, and again after compaction: consider saving knowledge (50%), consider
-updating the handoff (70%), then update the handoff at the next clean stopping
-point (85%).
+each band, and again after compaction: consider saving knowledge (40%), consider
+updating the handoff (55%), then update the handoff at the next clean stopping
+point (70%).
 
 ### Handoff compaction
 
@@ -214,7 +214,7 @@ Under `notebook` in `~/.pi/agent/settings.json`:
   "injectBudgetTokens": 1500,
   "globalIndexLimit": 20,
   "nudgeCooldownTurns": 16,
-  "contextBands": [50, 70, 85],
+  "contextBands": [40, 55, 70],
   "nudgeModel": true,
   "guard": true,
   "refreshSection": "session",
