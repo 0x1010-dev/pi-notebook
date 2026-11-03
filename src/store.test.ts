@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Scope } from "./paths.ts";
 import {
   appendManaged, getEntry, initScope, keywords, listAll, normalizeTags,
-  parseRef, preview, readHandoff, readManaged, recall, ref, refreshIndex,
+  parseRef, preview, readHandoff, readManaged, recall, ref, refreshIndex, loadMemories,
   replaceManaged, deleteEntry, revision, saveEntry, searchEntries, updateEntry, writeHandoff,
 } from "./store.ts";
 
@@ -86,17 +86,61 @@ test("deletion of converted memories reserves IDs and ignores old archive collec
   assert.throws(() => deleteEntry(s, 42), /not found/);
 });
 
-test("invalid or duplicate memory files fail explicitly", () => {
+test("invalid or duplicate memory files are diagnosed without hiding valid memories", () => {
   const s = scope();
   const e = saveEntry(s, "Valid", "Content");
   const original = readFileSync(e.path, "utf8");
   writeFileSync(e.path, "No heading");
-  assert.throws(() => listAll(s), /Invalid memory/);
+  assert.equal(loadMemories(s).diagnostics.length, 1);
+  assert.match(loadMemories(s).diagnostics[0].reason, /Invalid memory/);
+  assert.throws(() => getEntry(s, 1), /need repair/);
   writeFileSync(e.path, original.replace(/updated:.*\n/, 'tags: ["broken", 1]\n'));
-  assert.throws(() => listAll(s), /Invalid tags/);
+  assert.match(loadMemories(s).diagnostics[0].reason, /Invalid tags/);
   writeFileSync(e.path, original);
   writeFileSync(join(s.dir, "memories", "0001-duplicate.md"), original);
-  assert.throws(() => listAll(s), /Duplicate memory ID/);
+  assert.equal(loadMemories(s).diagnostics.length, 2);
+  assert.ok(loadMemories(s).diagnostics.every((d) => d.reason.includes("Duplicate memory ID")));
+  assert.deepEqual(listAll(s), []);
+  const valid = saveEntry(s, "Another", "Still searchable.");
+  assert.equal(valid.id, 2);
+  assert.deepEqual(listAll(s).map(ref), ["M2"]);
+  assert.equal(recall([s], "another", 3)[0].id, 2);
+  assert.match(readFileSync(join(s.dir, "README.md"), "utf8"), /Files needing repair/);
+});
+
+test("YAML flow and block lists survive human edits and invalid metadata is contained", () => {
+  const s = scope();
+  initScope(s);
+  const path = join(s.dir, "memories/0042-human.md");
+  writeFileSync(path, "---\ntags: [braille, ratatui]\nfiles:\n  - src/tui.rs\n  - 'src/other.rs'\nupdated: 2026-11-02\n---\n# Human edit\n\nUse the canonical table.\n");
+  assert.deepEqual(getEntry(s, 42)?.tags, ["braille", "ratatui"]);
+  assert.deepEqual(getEntry(s, 42)?.files, ["src/tui.rs", "src/other.rs"]);
+  assert.equal(getEntry(s, 42)?.date, "2026-11-02");
+  for (const content of [
+    "---\ntags: [broken\n---\n# Invalid\n\nContent",
+    "---\ntags: [first]\ntags: [second]\n---\n# Invalid\n\nContent",
+    "---\ntags:\n  - good\n  - {bad: mapping}\n---\n# Invalid\n\nContent",
+    "---\ntags: [valid]\n# Unclosed",
+  ]) {
+    writeFileSync(path, content);
+    assert.equal(loadMemories(s).diagnostics.length, 1);
+    assert.deepEqual(listAll(s), []);
+  }
+  assert.equal(saveEntry(s, "Next", "Valid knowledge.").id, 43, "invalid files still reserve IDs");
+  writeFileSync(path, "# Repaired\n\nUseful again.\n");
+  assert.equal(loadMemories(s).diagnostics.length, 0);
+  assert.equal(listAll(s).length, 2);
+  refreshIndex(s);
+  assert.doesNotMatch(readFileSync(join(s.dir, "README.md"), "utf8"), /Files needing repair/);
+});
+
+test("noncanonical filenames are reported and numeric prefixes reserve IDs", () => {
+  const s = scope();
+  initScope(s);
+  writeFileSync(join(s.dir, "memories/0042.md"), "# Human\n\nKnowledge.");
+  writeFileSync(join(s.dir, "memories/misc.md"), "# Other\n\nKnowledge.");
+  assert.equal(loadMemories(s).diagnostics.length, 2);
+  assert.equal(saveEntry(s, "Next", "Knowledge.").id, 43);
 });
 
 test("refs, tags, tokens and previews have predictable semantics", () => {
@@ -179,10 +223,40 @@ test("handoff is a readable snapshot with an index pointer", () => {
     blockers: [], notes: "", updated: "2026-10-23T12:00:00.000Z",
   };
   writeHandoff(s, h);
+  const original = readFileSync(join(s.dir, "handoff.md"), "utf8");
+  assert.equal(existsSync(join(s.dir, "handoff.previous.md")), false);
   assert.deepEqual(readHandoff(s), h);
   assert.match(readFileSync(join(s.dir, "handoff.md"), "utf8"), /# Current handoff/);
   assert.match(readFileSync(join(s.dir, "README.md"), "utf8"), /\[Current handoff\]\(handoff.md\)/);
   writeHandoff(s, { ...h, status: "Complete", nextSteps: [] });
+  assert.equal(readFileSync(join(s.dir, "handoff.previous.md"), "utf8"), original);
+  const second = readFileSync(join(s.dir, "handoff.md"), "utf8");
+  writeHandoff(s, { ...h, status: "Third snapshot", nextSteps: [] });
+  assert.equal(readFileSync(join(s.dir, "handoff.previous.md"), "utf8"), second);
+  assert.equal(readdirSync(s.dir).filter((name) => name.endsWith(".tmp")).length, 0);
   assert.deepEqual(readHandoff(s)?.nextSteps, []);
-  assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), "handoff.md\n");
+  assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), "handoff.md\nhandoff.previous.md\nhandoff.*.tmp\n");
+});
+
+test("handoff updates extend existing ignore rules without altering them", () => {
+  const s = scope();
+  mkdirSync(s.dir, { recursive: true });
+  writeFileSync(join(s.dir, ".gitignore"), "custom.txt\nhandoff.md");
+  const h = { goal: "Ship", status: "Ready", nextSteps: [], blockers: [], notes: "", updated: "now" };
+  writeHandoff(s, h);
+  const ignores = readFileSync(join(s.dir, ".gitignore"), "utf8");
+  assert.equal(ignores, "custom.txt\nhandoff.md\nhandoff.previous.md\nhandoff.*.tmp\n");
+  writeHandoff(s, h);
+  assert.equal(readFileSync(join(s.dir, ".gitignore"), "utf8"), ignores);
+});
+
+test("failed recovery-copy writes leave the current handoff intact and clean up temporary files", () => {
+  const s = scope();
+  const h = { goal: "Ship", status: "Ready", nextSteps: [], blockers: [], notes: "", updated: "now" };
+  writeHandoff(s, h);
+  const current = readFileSync(join(s.dir, "handoff.md"), "utf8");
+  mkdirSync(join(s.dir, "handoff.previous.md"));
+  assert.throws(() => writeHandoff(s, { ...h, status: "Wrong update" }));
+  assert.equal(readFileSync(join(s.dir, "handoff.md"), "utf8"), current);
+  assert.equal(readdirSync(s.dir).filter((name) => name.endsWith(".tmp")).length, 0);
 });

@@ -4,7 +4,20 @@ import type { NotebookConfig } from "./config.ts";
 import { buildSection } from "./inject.ts";
 import type { Located } from "./runtime.ts";
 import type { ContextFile, Snapshot } from "./session.ts";
-import { listAll, readHandoff, revision } from "./store.ts";
+import { loadMemories, readHandoff, readManaged, revision } from "./store.ts";
+
+export function loadNotebook({ scope, global }: Located) {
+  const local = scope ? loadMemories(scope) : undefined;
+  const everywhere = loadMemories(global);
+  return {
+    local, everywhere,
+    projectEntries: local?.entries ?? [],
+    globalEntries: everywhere.entries,
+    diagnostics: [...(local?.diagnostics ?? []), ...everywhere.diagnostics],
+    handoff: scope ? readHandoff(scope) : undefined,
+    conventions: scope ? readManaged(scope.agentsFile) : [],
+  };
+}
 
 function sameFile(a: string, b: string): boolean {
   const real = (p: string) => {
@@ -34,19 +47,22 @@ function readIfExists(path: string): string | undefined {
 }
 
 /** Detect human edits while retaining an unchanged system-prompt prefix between writes. */
-export function notebookFingerprint({ project, scope, global }: Located): string {
-  const memories = [scope, global].flatMap((s) => s
-    ? listAll(s).map((e) => [e.path, e.date, revision(e)]) : []);
+export function notebookFingerprint(located: Located, loaded = loadNotebook(located)): string {
+  const { project, scope, global } = located;
+  const memories = [...loaded.projectEntries, ...loaded.globalEntries]
+    .map((e) => [e.path, e.date, revision(e)]);
   return createHash("sha1").update(JSON.stringify([
-    project?.root, memories, scope && readHandoff(scope),
+    project?.root, memories, loaded.handoff, loaded.diagnostics,
     readIfExists(global.agentsFile), scope && readIfExists(scope.agentsFile),
   ])).digest("hex");
 }
 
 export function buildSnapshot(
-  { project, scope, global }: Located,
+  located: Located,
   cfg: NotebookConfig,
+  loaded = loadNotebook(located),
 ): Snapshot {
+  const { project, scope, global } = located;
   const files: ContextFile[] = [];
   const globalContent = readIfExists(global.agentsFile);
   if (globalContent !== undefined)
@@ -66,6 +82,7 @@ export function buildSnapshot(
       global,
       budgetTokens: cfg.injectBudgetTokens,
       globalLimit: cfg.globalIndexLimit,
+      snapshot: loaded,
     }),
     files,
   };

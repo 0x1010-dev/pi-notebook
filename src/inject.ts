@@ -1,5 +1,5 @@
 import type { Project, Scope } from "./paths.ts";
-import { type Entry, type Handoff, listAll, readHandoff, readManaged, ref } from "./store.ts";
+import { type Entry, type Handoff, type MemoryDiagnostic, listAll, readHandoff, readManaged, ref } from "./store.ts";
 import { ago } from "./ui.ts";
 
 export interface InjectInput {
@@ -13,6 +13,7 @@ export interface InjectInput {
     globalEntries: Entry[];
     handoff?: Handoff;
     conventions: string[];
+    diagnostics?: MemoryDiagnostic[];
   };
 }
 
@@ -61,6 +62,8 @@ export function buildSection(input: InjectInput): string {
     return true;
   };
   for (const line of HEADER) push(line);
+  if (input.snapshot?.diagnostics?.length)
+    push(`Notebook warning: ${input.snapshot.diagnostics.length} files excluded due to load errors. The notebook is incomplete; memory_search "*" reports paths and reasons.`);
   if (project) push(`Project: ${project.name}${scope ? "" : " (no notebook; memory_save can create one)"}`);
   const h = input.snapshot ? input.snapshot.handoff : scope && readHandoff(scope);
   if (h) {

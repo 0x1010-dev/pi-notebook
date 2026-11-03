@@ -12,7 +12,8 @@ import {
   type Scope,
 } from "./paths.ts";
 import { Session } from "./session.ts";
-import { listAll, readHandoff } from "./store.ts";
+import { loadNotebook } from "./context-files.ts";
+import { diagnosticText } from "./store.ts";
 import { type StatusInfo, statusLine } from "./ui.ts";
 
 export interface Located {
@@ -31,14 +32,12 @@ export function locate(cwd: string): Located {
   };
 }
 
-export function statusInfo(located: Located): StatusInfo {
-  const { project, scope, global } = located;
+export function statusInfo(located: Located): StatusInfo & ReturnType<typeof loadNotebook> {
+  const { project, scope } = located;
   return {
     project,
     scope,
-    projectEntries: scope ? listAll(scope) : [],
-    globalEntries: listAll(global),
-    handoff: scope ? readHandoff(scope) : undefined,
+    ...loadNotebook(located),
   };
 }
 
@@ -59,6 +58,11 @@ export function createRuntime(pi: ExtensionAPI): Runtime {
   const refreshStatus = (ctx: ExtensionContext): void => {
     if (!ctx.hasUI) return;
     const info = statusInfo(locate(ctx.cwd));
+    const diagnostics = diagnosticText(info.diagnostics ?? []);
+    if (session.loadWarning !== diagnostics) {
+      session.loadWarning = diagnostics;
+      if (diagnostics) ctx.ui.notify(diagnostics, "warning");
+    }
     const placement = session.cfg.statusPlacement;
     if (placement === "footer") {
       ctx.ui.setWidget(STATUS_KEY, undefined);

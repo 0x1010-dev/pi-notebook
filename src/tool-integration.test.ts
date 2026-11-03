@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
@@ -92,6 +92,7 @@ test("registered tools save, update, search, read and permanently delete memorie
   const saved = await h.call("memory_save", {
     title: "Braille rendering", content: "Use the canonical dot table.", tags: ["braille"], files: ["src/spark.rs"],
   });
+
   assert.match(JSON.stringify(saved.content), /Saved M1/);
   await h.call("memory_save", { ref: "M1", tags: ["braille", "tui"] });
   const entry = getEntry(locate(h.ctx.cwd).scope!, 1)!;
@@ -109,6 +110,23 @@ test("registered tools save, update, search, read and permanently delete memorie
   assert.match(JSON.stringify(missing.content), /Not found: M1/);
   assert.deepEqual(listAll(locate(h.ctx.cwd).scope!), []);
   assert.equal(h.confirms, 1);
+});
+
+test("search reports malformed files while valid memories remain usable", async () => {
+  const h = harness();
+  await h.call("memory_save", { title: "SQLite choice", content: "Use SQLite." });
+  const s = locate(h.ctx.cwd).scope!;
+  writeFileSync(join(s.dir, "memories/0042-broken.md"), "---\ntags: [broken\n---\n# Broken\n\nContent.");
+  for (const query of ["*", "sqlite", "M1", "handoff"]) {
+    const result = await h.call("memory_search", { query });
+    assert.match(JSON.stringify(result.content), /files need repair/);
+    assert.match(JSON.stringify(result.content), /0042-broken/);
+  }
+  const valid = await h.call("memory_search", { query: "M1" });
+  assert.match(JSON.stringify(valid.content), /Use SQLite/);
+  await assert.rejects(h.call("memory_search", { query: "M42" }), /files need repair/);
+  const saved = await h.call("memory_save", { title: "Next", content: "New knowledge." });
+  assert.match(JSON.stringify(saved.content), /Saved M43/);
 });
 
 test("deletion requires approval and leaves memories untouched when declined", async () => {

@@ -26,6 +26,7 @@ export class Session {
   recalled = new Map<string, string>();
   snapshot: Snapshot | undefined;
   snapshotFingerprint: string | undefined;
+  loadWarning = "";
   /** Guard warnings keyed by tool call id, appended to that call's result. */
   readonly warnings = new Map<string, string>();
 
@@ -42,6 +43,7 @@ export class Session {
     this.pendingNudge = undefined;
     this.suppressNudgeOnce = false;
     this.warnings.clear();
+    this.loadWarning = "";
     this.committed = false;
     this.turnsSinceNudge = this.cfg.nudgeCooldownTurns;
     this.contextNudged = false;

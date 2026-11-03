@@ -17,17 +17,6 @@ export function wrapPrompt(inProject: boolean): string {
   ].join("\n");
 }
 
-export function learnPrompt(topic: string): string {
-  return [
-    "Look for valuable knowledge gaps in this repository, not a comprehensive notebook.",
-    topic ? `Focus on: ${topic}` : "Focus on hidden constraints, important rationale and non-obvious cross-file dependencies.",
-    'Browse existing memories with memory_search "*" and consult project documentation before exploring relevant code with bounded effort.',
-    ADMISSION, CURRENT, WRITING,
-    "Use memory_save only for worthwhile gaps. Do not invent rules from incidental patterns or aim for a quota of memories.",
-    "Reply briefly with what was learned and saved, or why no new memories were needed.",
-  ].join("\n");
-}
-
 export function curatePrompt(): string {
   return [
     "Curate the notebook into useful current knowledge, not a historical record.",

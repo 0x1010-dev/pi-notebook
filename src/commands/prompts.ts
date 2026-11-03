@@ -1,22 +1,10 @@
-import { findProject, type Scope } from "../paths.ts";
-import { curatePrompt, learnPrompt, wrapPrompt } from "../prompts.ts";
+import type { Scope } from "../paths.ts";
+import { curatePrompt, wrapPrompt } from "../prompts.ts";
 import { locate, type Runtime } from "../runtime.ts";
 import { listAll } from "../store.ts";
 
 /** Commands that hand the model a prompt instead of editing notes directly. */
 export function registerPromptCommands(rt: Runtime): void {
-  rt.pi.registerCommand("nb:learn", {
-    description:
-      "Look for useful knowledge gaps, e.g. /nb:learn or /nb:learn error handling",
-    handler: async (args, ctx) => {
-      if (!findProject(ctx.cwd)) {
-        ctx.ui.notify("Not inside a git repository.", "warning");
-        return;
-      }
-      rt.sendOwnPrompt(ctx, learnPrompt(args.trim()));
-    },
-  });
-
   rt.pi.registerCommand("nb:wrap", {
     description:
       "Save worthwhile knowledge and reconcile the current handoff",

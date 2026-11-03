@@ -1,5 +1,5 @@
 import { NUDGE_TYPE, RECALL_BUDGET_CHARS } from "../constants.ts";
-import { buildSnapshot, notebookFingerprint, syncContextFile } from "../context-files.ts";
+import { buildSnapshot, loadNotebook, notebookFingerprint, syncContextFile } from "../context-files.ts";
 import { clip, entryLabel, noteLines } from "../format.ts";
 import { formatHandoff } from "../inject.ts";
 import { locate, type Located, type Runtime } from "../runtime.ts";
@@ -11,7 +11,7 @@ import {
   nudgeText,
   PREFERENCE_NUDGE,
 } from "../signals.ts";
-import { readHandoff, recall, ref, refreshIndex, revision } from "../store.ts";
+import { diagnosticText, readHandoff, recall, ref, refreshIndex, revision } from "../store.ts";
 
 /** Hidden notes for the model: nudges, a resume handoff, or entries relevant to the prompt. */
 export function promptNotes(
@@ -20,6 +20,7 @@ export function promptNotes(
   cwd: string,
   prompt: string,
   queued: NudgeKind | undefined,
+  loaded?: ReturnType<typeof loadNotebook>,
 ): string[] {
   const { cfg } = session;
   const notes: string[] = [];
@@ -29,7 +30,7 @@ export function promptNotes(
 
   const resume =
     scope && !session.handoffShown && looksLikeResume(prompt)
-      ? readHandoff(scope)
+      ? loaded ? loaded.handoff : readHandoff(scope)
       : undefined;
   if (resume) {
     session.handoffShown = true;
@@ -43,6 +44,7 @@ export function promptNotes(
     prompt,
     cfg.autoRecall,
     (e) => session.recalled.get(ref(e)) === revision(e),
+    loaded ? [...loaded.projectEntries, ...loaded.globalEntries] : undefined,
   );
   if (hits.length) {
     let remaining = RECALL_BUDGET_CHARS;
@@ -70,14 +72,20 @@ export function promptNotes(
 export function registerPromptEvents({ pi, session }: Runtime): void {
   pi.on("before_agent_start", async (event, ctx) => {
     const located = locate(ctx.cwd);
-    if (located.scope) refreshIndex(located.scope);
-    refreshIndex(located.global);
-    const fingerprint = notebookFingerprint(located);
+    const loaded = loadNotebook(located);
+    const warnings = diagnosticText(loaded.diagnostics);
+    if (warnings !== session.loadWarning) {
+      session.loadWarning = warnings;
+      if (warnings) ctx.ui.notify(warnings, "warning");
+    }
+    const fingerprint = notebookFingerprint(located, loaded);
     if (session.snapshot && session.snapshotFingerprint !== fingerprint)
       session.handoffShown = false;
     if (!session.snapshot || session.cfg.refreshSection === "turn" ||
         session.snapshotFingerprint !== fingerprint) {
-      session.snapshot = buildSnapshot(located, session.cfg);
+      if (located.scope && loaded.local) refreshIndex(located.scope, loaded.local);
+      refreshIndex(located.global, loaded.everywhere);
+      session.snapshot = buildSnapshot(located, session.cfg, loaded);
       session.snapshotFingerprint = fingerprint;
     }
     const opts = event.systemPromptOptions;
@@ -91,7 +99,7 @@ export function registerPromptEvents({ pi, session }: Runtime): void {
     session.pendingNudge = undefined;
     if (suppress || event.messageType !== "user") return;
 
-    const notes = promptNotes(session, located, ctx.cwd, event.prompt, queued);
+    const notes = promptNotes(session, located, ctx.cwd, event.prompt, queued, loaded);
     if (notes.length === 0) return;
     return {
       message: {

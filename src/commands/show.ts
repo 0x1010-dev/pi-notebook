@@ -9,10 +9,7 @@ export function registerShowCommand({ pi, session }: Runtime): void {
     handler: async (_args, ctx) => {
       const located = locate(ctx.cwd);
       const { project, scope, global } = located;
-      const snapshot = {
-        ...statusInfo(located),
-        conventions: scope ? readManaged(scope.agentsFile) : [],
-      };
+      const snapshot = statusInfo(located);
       const data: ViewData = {
         ...snapshot,
         preferences: readManaged(global.agentsFile),

@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Project, Scope } from "./paths.ts";
-import type { Entry, Handoff } from "./store.ts";
+import type { Entry, Handoff, MemoryDiagnostic } from "./store.ts";
 
 export function ago(iso: string, now = Date.now()): string {
   const t = Date.parse(iso);
@@ -20,6 +20,7 @@ export interface StatusInfo {
   projectEntries: Entry[];
   globalEntries: Entry[];
   handoff?: Handoff;
+  diagnostics?: MemoryDiagnostic[];
 }
 
 export function counts(entries: Entry[]): number {
@@ -38,6 +39,7 @@ export function statusLine(th: Theme, s: StatusInfo): string {
   const parts = [
     `${th.fg(lit ? "accent" : "dim", lit ? "◆" : "◇")} ${th.fg(lit ? "muted" : "dim", "NB")}`,
   ];
+  if (s.diagnostics?.length) parts.push(th.fg("warning", `${s.diagnostics.length} files need repair`));
 
   if (s.scope) {
     parts.push(summary(th, s.projectEntries));

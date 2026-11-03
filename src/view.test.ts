@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { Entry, Handoff } from "./store.ts";
-import { counts } from "./ui.ts";
+import { counts, statusLine } from "./ui.ts";
 import {
   clampScroll,
   ensureVisible,
@@ -216,6 +216,21 @@ test("cached rows update when expanding and collapsing details", () => {
   assert.match(view.render(120).join("\n"), /Additional details/);
   view.handleInput("\r");
   assert.doesNotMatch(view.render(120).join("\n"), /Additional details/);
+  view.dispose();
+});
+
+test("malformed memory diagnostics remain visible in the browser and status line", () => {
+  const theme = { fg: (_color: string, value: string) => value, bold: (value: string) => value } as Theme;
+  const data = {
+    ...base,
+    diagnostics: [{ path: "/r/.pi/notebook/memories/0042-broken.md", reason: "Invalid tags: expected a list." }],
+  };
+  const view = new NotebookView(data, theme, { terminal: { rows: 24 }, requestRender() {} }, () => {});
+  const rendered = view.render(120).join("\n");
+  assert.match(rendered, /files need repair/);
+  assert.match(rendered, /0042-broken/);
+  assert.match(rendered, /Invalid tags/);
+  assert.match(statusLine(theme, data), /1 files need repair/);
   view.dispose();
 });
 

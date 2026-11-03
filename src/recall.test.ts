@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { notebookFingerprint } from "./context-files.ts";
+import { buildSnapshot, loadNotebook, notebookFingerprint } from "./context-files.ts";
 import { RECALL_BUDGET_CHARS } from "./constants.ts";
 import { promptNotes } from "./events/prompt.ts";
 import { buildSection } from "./inject.ts";
 import type { Scope } from "./paths.ts";
 import { Session } from "./session.ts";
-import { listAll, readHandoff, readManaged, recall, ref, saveEntry, updateEntry, writeHandoff } from "./store.ts";
+import { listAll, readHandoff, readManaged, recall, ref, refreshIndex, saveEntry, updateEntry, writeHandoff } from "./store.ts";
 
 const root = mkdtempSync(join(tmpdir(), "nb-recall-"));
 after(() => rmSync(root, { recursive: true }));
@@ -103,6 +103,28 @@ test("injection can reuse a complete view snapshot without reading notebook file
   };
   rmSync(located.project.root, { recursive: true });
   assert.equal(buildSection({ ...input, snapshot }), expected);
+});
+
+test("fingerprinting, index generation, injection and recall share one loaded collection", () => {
+  const { located, session } = fixture();
+  saveEntry(located.scope, "Snapshot memory", "Use the loaded collection.");
+  writeFileSync(join(located.scope.dir, "memories/0042-broken.md"), "No heading.");
+  const loaded = loadNotebook(located);
+  const fingerprint = notebookFingerprint(located, loaded);
+  const snapshot = buildSnapshot(located, session.cfg, loaded);
+  const expected = promptNotes(session, located, located.project.root, "snapshot", undefined, loaded);
+  session.recalled.clear();
+  rmSync(join(located.scope.dir, "memories"), { recursive: true });
+  assert.equal(notebookFingerprint(located, loaded), fingerprint);
+  assert.deepEqual(buildSnapshot(located, session.cfg, loaded), snapshot);
+  assert.deepEqual(promptNotes(session, located, located.project.root, "snapshot", undefined, loaded), expected);
+  refreshIndex(located.scope, loaded.local);
+  const index = join(located.scope.dir, "README.md");
+  assert.match(readFileSync(index, "utf8"), /Snapshot memory/);
+  assert.match(readFileSync(index, "utf8"), /0042-broken/);
+  const modified = statSync(index).mtimeMs;
+  refreshIndex(located.scope, loaded.local);
+  assert.equal(statSync(index).mtimeMs, modified, "unchanged indexes must not be rewritten");
 });
 
 test("small realistic retrieval evaluation meets recall and irrelevant-injection thresholds", (t) => {

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -6,10 +6,12 @@ import {
   readFileSync,
   unlinkSync,
   writeFileSync,
+  renameSync,
+  rmSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import type { Scope, ScopeKind } from "./paths.ts";
-import { staleness } from "./git.ts";
+import { parseDocument, stringify } from "yaml";
 
 export interface Entry {
   scope: ScopeKind;
@@ -47,21 +49,25 @@ export function normalizeTags(tags: string[]): string[] {
     .replace(/[^\p{L}\p{N}_.+/-]+/gu, "-").replace(/^-+|-+$/g, "")).filter(Boolean))];
 }
 
-function parseFrontmatter(text: string): { meta: Record<string, string>; body: string } {
-  const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text.replace(/\r\n/g, "\n"));
-  if (!m) return { meta: {}, body: text.trim() };
-  const meta: Record<string, string> = {};
-  for (const line of m[1].split("\n")) {
-    const i = line.indexOf(":");
-    if (i > 0) meta[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+function parseFrontmatter(text: string): { meta: Record<string, unknown>; body: string } {
+  const normalized = text.replace(/\r\n/g, "\n");
+  const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(normalized);
+  if (!m) {
+    if (normalized.startsWith("---\n")) throw new Error("Unclosed metadata block.");
+    return { meta: {}, body: normalized.trim() };
   }
-  return { meta, body: m[2].trim() };
+  const document = parseDocument(m[1], { schema: "core", uniqueKeys: true });
+  if (document.errors.length) throw new Error(document.errors.map((e) => e.message).join("; "));
+  const meta: unknown = document.toJS({ maxAliasCount: 0 });
+  if (meta === null) return { meta: {}, body: m[2].trim() };
+  if (!meta || typeof meta !== "object" || Array.isArray(meta))
+    throw new Error("Metadata must be a YAML mapping.");
+  return { meta: Object.fromEntries(Object.entries(meta)), body: m[2].trim() };
 }
 
-function renderFrontmatter(meta: Record<string, string | undefined>, body: string): string {
-  const lines = Object.entries(meta).filter(([, v]) => v !== undefined && v !== "")
-    .map(([k, v]) => `${k}: ${v}`);
-  return `${lines.length ? `---\n${lines.join("\n")}\n---\n\n` : ""}${body.trim()}\n`;
+function renderFrontmatter(meta: Record<string, string | string[] | undefined>, body: string): string {
+  const fields = Object.entries(meta).filter(([, v]) => v !== undefined && v !== "");
+  return `${fields.length ? `---\n${stringify(Object.fromEntries(fields))}---\n\n` : ""}${body.trim()}\n`;
 }
 
 function writeFile(path: string, content: string): void {
@@ -69,50 +75,94 @@ function writeFile(path: string, content: string): void {
   writeFileSync(path, content);
 }
 
-function stringList(value: string | undefined, field: string, path: string): string[] {
-  if (!value) return [];
-  const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed) || !parsed.every((v) => typeof v === "string"))
-    throw new Error(`Invalid ${field} in ${path}: expected a JSON string array.`);
-  return parsed;
+function stringList(value: unknown, field: string, path: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((v) => typeof v === "string"))
+    throw new Error(`Invalid ${field} in ${path}: expected a YAML list of strings.`);
+  return value;
+}
+
+function scalar(value: unknown, field: string): string {
+  if (value === undefined) return "";
+  if (typeof value !== "string") throw new Error(`Invalid ${field}: expected text.`);
+  return value;
+}
+
+export interface MemoryDiagnostic {
+  path: string;
+  reason: string;
+}
+
+export interface MemoryCollection {
+  entries: Entry[];
+  diagnostics: MemoryDiagnostic[];
+  maxId: number;
+}
+
+export function diagnosticText(diagnostics: MemoryDiagnostic[]): string {
+  return diagnostics.length
+    ? `Notebook files need repair (excluded from recall):\n${diagnostics.map((d) => `- ${d.path}: ${d.reason}`).join("\n")}`
+    : "";
 }
 
 function writeEntry(e: Entry): void {
   writeFile(e.path, renderFrontmatter({
     updated: e.date,
-    tags: e.tags.length ? JSON.stringify(e.tags) : undefined,
-    files: e.files?.length ? JSON.stringify(e.files) : undefined,
+    tags: e.tags.length ? e.tags : undefined,
+    files: e.files?.length ? e.files : undefined,
     commit: e.commit,
   }, `# ${e.title}\n\n${e.body}`));
 }
 
 export function listAll(scope: Scope): Entry[] {
+  return loadMemories(scope).entries;
+}
+
+export function loadMemories(scope: Scope): MemoryCollection {
   const entries: Entry[] = [];
-  const ids = new Set<number>();
+  const diagnostics: MemoryDiagnostic[] = [];
+  const ids = new Map<number, string[]>();
+  let maxId = 0;
   const dir = join(scope.dir, "memories");
-  if (!existsSync(dir)) return [];
-  for (const name of readdirSync(dir).sort()) {
-    const m = /^(\d+)-.*\.md$/.exec(name);
-    if (!m) continue;
-    const path = join(dir, name);
-    const { meta, body } = parseFrontmatter(readFileSync(path, "utf8"));
-    const heading = /^# ([^\n]+)\n?([\s\S]*)$/.exec(body);
-    const id = Number(m[1]);
-    if (!heading || !heading[1].trim() || !Number.isSafeInteger(id) || id < 1)
-      throw new Error(`Invalid memory ${path}: expected a numeric filename and a # title.`);
-    if (ids.has(id))
-      throw new Error(`Duplicate memory ID M${id} in ${scope.dir}.`);
-    ids.add(id);
-    entries.push({
-      scope: scope.kind, id, path,
-      title: heading[1].trim(), body: heading[2].trim(),
-      date: meta.updated ?? "",
-      tags: normalizeTags(stringList(meta.tags, "tags", path)),
-      files: stringList(meta.files, "files", path),
-      commit: meta.commit,
-    });
+  if (!existsSync(dir)) return { entries, diagnostics, maxId };
+  const names = readdirSync(dir).sort();
+  for (const name of names) {
+    if (!name.endsWith(".md")) continue;
+    const match = /^(\d+)/.exec(name);
+    if (!match) continue;
+    const id = Number(match[1]);
+    if (Number.isSafeInteger(id) && id > 0) {
+      maxId = Math.max(maxId, id);
+      ids.set(id, [...(ids.get(id) ?? []), name]);
+    }
   }
-  return entries.sort((a, b) => a.id - b.id);
+  for (const name of names) {
+    if (!name.endsWith(".md")) continue;
+    const m = /^(\d+)-.*\.md$/.exec(name);
+    const path = join(dir, name);
+    try {
+      if (!m) throw new Error("Expected a numeric filename such as 0001-topic.md.");
+      const id = Number(m[1]);
+      if ((ids.get(id)?.length ?? 0) > 1)
+        throw new Error(`Duplicate memory ID M${id}; repair all files with this ID.`);
+      const { meta, body } = parseFrontmatter(readFileSync(path, "utf8"));
+      const heading = /^# ([^\n]+)\n?([\s\S]*)$/.exec(body);
+      if (!heading || !heading[1].trim() || !Number.isSafeInteger(id) || id < 1)
+        throw new Error(`Invalid memory ${path}: expected a numeric filename and a # title.`);
+      entries.push({
+        scope: scope.kind, id, path,
+        title: heading[1].trim(), body: heading[2].trim(),
+        date: scalar(meta.updated, "updated"),
+        tags: normalizeTags(stringList(meta.tags, "tags", path)),
+        files: stringList(meta.files, "files", path),
+        commit: scalar(meta.commit, "commit") || undefined,
+      });
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      diagnostics.push({ path, reason: error.message });
+    }
+  }
+  return { entries: entries.sort((a, b) => a.id - b.id), diagnostics, maxId };
 }
 
 function reserveId(scope: Scope, allocate = true): number {
@@ -120,14 +170,17 @@ function reserveId(scope: Scope, allocate = true): number {
   const next = existsSync(path) ? Number(readFileSync(path, "utf8").trim()) : 1;
   if (!Number.isSafeInteger(next) || next < 1)
     throw new Error(`Invalid memory ID counter: ${path}`);
-  const id = Math.max(next, ...listAll(scope).map((e) => e.id + 1));
+  const id = Math.max(next, loadMemories(scope).maxId + 1);
   if (!Number.isSafeInteger(id + 1)) throw new Error("Memory ID counter exhausted.");
   writeFile(path, `${allocate ? id + 1 : id}\n`);
   return id;
 }
 
 export function getEntry(scope: Scope, id: number): Entry | undefined {
-  return listAll(scope).find((e) => e.id === id);
+  const loaded = loadMemories(scope);
+  const invalid = loaded.diagnostics.filter((d) => Number(/^(\d+)/.exec(d.path.split("/").at(-1) ?? "")?.[1]) === id);
+  if (invalid.length) throw new Error(diagnosticText(invalid));
+  return loaded.entries.find((e) => e.id === id);
 }
 
 export interface MemoryMeta {
@@ -203,12 +256,14 @@ function markdownText(text: string): string {
   return oneLine(text).replace(/([\\`*_[\]<>#!|])/g, "\\$1");
 }
 
-export function refreshIndex(scope: Scope): void {
+export function refreshIndex(scope: Scope, collection = loadMemories(scope)): void {
   if (!existsSync(scope.dir)) return;
-  const entries = listAll(scope);
+  const { entries, diagnostics } = collection;
   const lines = ["# Notebook", "", "Durable knowledge for future work. Edit memory files freely; this index is generated.", ""];
   if (existsSync(handoffPath(scope))) lines.push("[Current handoff](handoff.md)", "");
   if (!entries.length) lines.push("No memories yet.");
+  if (diagnostics.length)
+    lines.push("## Files needing repair", "", ...diagnostics.map((d) => `- ${markdownText(d.path)}: ${markdownText(d.reason)}`), "");
   for (const e of entries) {
     const link = relative(scope.dir, e.path).split("/").map(encodeURIComponent).join("/");
     lines.push(`## [${ref(e)}: ${markdownText(e.title)}](${link})`, "", markdownText(preview(e)), "");
@@ -222,10 +277,7 @@ export function refreshIndex(scope: Scope): void {
       });
       lines.push(`Related: ${paths.join(", ")}`, "");
     }
-    if (scope.project && e.commit) {
-      const warning = staleness(scope.project.root, e.commit, e.files);
-      if (warning) lines.push(`> ${markdownText(warning)}`, "");
-    }
+    if (e.commit) lines.push(`Code baseline: ${markdownText(e.commit)} (not verified by this index).`, "");
   }
   const content = `${lines.join("\n").trim()}\n`;
   const path = join(scope.dir, "README.md");
@@ -251,6 +303,7 @@ export interface SearchHit {
 
 interface SearchOptions {
   exclude?: (entry: Entry) => boolean;
+  entries?: Entry[];
 }
 
 export function searchEntries(
@@ -261,7 +314,7 @@ export function searchEntries(
   const paths = [...query.matchAll(/(?:^|\s)(\.?\/?[\p{L}\p{N}_.-]+(?:\/[\p{L}\p{N}_.-]+)+)/gu)]
     .map((m) => m[1].replace(/^\.\//, "").toLowerCase());
   if ((!terms.length && !tags.length) || !Number.isFinite(limit) || limit <= 0) return [];
-  const entries = scopes.flatMap(listAll).filter((e) =>
+  const entries = (options.entries ?? scopes.flatMap(listAll)).filter((e) =>
     !options.exclude?.(e) && tags.every((t) => e.tags.includes(t)));
   const documents = entries.map((entry) => ({
     entry,
@@ -306,8 +359,9 @@ export function searchEntries(
 export function recall(
   scopes: Scope[], prompt: string, limit: number,
   exclude?: (entry: Entry) => boolean,
+  entries?: Entry[],
 ): Entry[] {
-  const hits = searchEntries(scopes, prompt, Number.MAX_SAFE_INTEGER, { exclude });
+  const hits = searchEntries(scopes, prompt, Number.MAX_SAFE_INTEGER, { exclude, entries });
   const terms = keywords(prompt);
   const directPathHit = hits.some((h) => h.matches.some((m) => m.startsWith("file:")));
   return hits.filter((h) => {
@@ -377,7 +431,7 @@ export function readHandoff(scope: Scope): Handoff | undefined {
   if (!existsSync(handoffPath(scope))) return undefined;
   const { meta, body } = parseFrontmatter(readFileSync(handoffPath(scope), "utf8"));
   const h: Handoff = {
-    goal: "", status: "", nextSteps: [], blockers: [], notes: "", updated: meta.updated ?? "",
+    goal: "", status: "", nextSteps: [], blockers: [], notes: "", updated: scalar(meta.updated, "updated"),
   };
   for (const part of body.split(/^## /m).slice(1)) {
     const nl = part.indexOf("\n");
@@ -399,13 +453,36 @@ export function writeHandoff(scope: Scope, h: Handoff): void {
       if (value.length) sections.push(`## ${title}\n\n${value.map((v) => `- ${oneLine(v)}`).join("\n")}`);
     } else if (value.trim()) sections.push(`## ${title}\n\n${value.trim()}`);
   }
-  writeFile(handoffPath(scope), renderFrontmatter({ updated: h.updated }, sections.join("\n\n")));
+  const path = handoffPath(scope);
+  ensureHandoffIgnore(scope);
+  if (existsSync(path)) atomicWrite(join(scope.dir, "handoff.previous.md"), readFileSync(path, "utf8"));
+  atomicWrite(path, renderFrontmatter({ updated: h.updated }, sections.join("\n\n")));
   refreshIndex(scope);
+}
+
+function atomicWrite(path: string, content: string): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    writeFileSync(temporary, content, { flag: "wx" });
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }
 
 export function initScope(scope: Scope): void {
   mkdirSync(join(scope.dir, "memories"), { recursive: true });
-  if (scope.mode === "repo" && !existsSync(join(scope.dir, ".gitignore")))
-    writeFileSync(join(scope.dir, ".gitignore"), "handoff.md\n");
+  ensureHandoffIgnore(scope);
   refreshIndex(scope);
+}
+
+function ensureHandoffIgnore(scope: Scope): void {
+  if (scope.mode === "repo") {
+    const path = join(scope.dir, ".gitignore");
+    const current = existsSync(path) ? readFileSync(path, "utf8") : "";
+    const missing = ["handoff.md", "handoff.previous.md", "handoff.*.tmp"]
+      .filter((line) => !current.split("\n").includes(line));
+    if (missing.length) writeFile(path, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${missing.join("\n")}\n`);
+  }
 }

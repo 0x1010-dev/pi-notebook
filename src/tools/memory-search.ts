@@ -7,12 +7,13 @@ import {
   type Entry,
   getEntry,
   type Handoff,
-  listAll,
   parseRef,
   readHandoff,
   searchEntries,
   preview,
   refreshIndex,
+  loadMemories,
+  diagnosticText,
 } from "../store.ts";
 import { callRow, text, textRow } from "./shared.ts";
 
@@ -78,9 +79,14 @@ export function registerMemorySearch(rt: Runtime): void {
 
     async execute(_id, p, _signal, _onUpdate, ctx): Promise<SearchOutput> {
       const { scope, global } = locate(ctx.cwd);
-      if (scope) refreshIndex(scope);
-      refreshIndex(global);
       const scopes = scope ? [scope, global] : [global];
+      const collections = scopes.map((s) => {
+        const loaded = loadMemories(s);
+        refreshIndex(s, loaded);
+        return loaded;
+      });
+      const diagnostics = diagnosticText(collections.flatMap((c) => c.diagnostics));
+      const resultText = (body: string) => text([diagnostics, body].filter(Boolean).join("\n\n"));
       const handoff: Handoff | undefined = scope
         ? readHandoff(scope)
         : undefined;
@@ -88,12 +94,12 @@ export function registerMemorySearch(rt: Runtime): void {
       const q = parseQuery(p.query);
 
       if (q.mode === "all") {
-        const all = scopes.flatMap((s) => listAll(s));
+        const all = collections.flatMap((c) => c.entries);
         const list = all.length
           ? all.map((e) => `${entryHead(e)}\n  ${e.tags.map((t) => `#${t}`).join(" ")}\n  ${preview(e)}`).join("\n\n")
           : "The notebook is empty.";
         return {
-          content: text(
+          content: resultText(
             handoff
               ? `Handoff: ${handoff.goal}. Read it with memory_search "handoff".\n\n${list}`
               : list,
@@ -104,7 +110,7 @@ export function registerMemorySearch(rt: Runtime): void {
       if (q.mode === "handoff") {
         if (handoff) rt.session.handoffShown = true;
         return {
-          content: text(
+          content: resultText(
             handoff
               ? formatHandoff(handoff)
               : "No handoff for this project yet.",
@@ -114,15 +120,17 @@ export function registerMemorySearch(rt: Runtime): void {
       }
       if (q.mode === "refs") {
         const read = readRefs(ctx.cwd, q.refs, scope, global);
-        return { content: text(read.body), details: { refs: read.refs } };
+        return { content: resultText(read.body), details: { refs: read.refs } };
       }
 
-      const hits = searchEntries(scopes, q.words.join(" "), p.limit ?? 8);
+      const hits = searchEntries(scopes, q.words.join(" "), p.limit ?? 8, {
+        entries: collections.flatMap((c) => c.entries),
+      });
       const body = hits.length
         ? `${hits.map((hit) => [entryHead(hit.entry), ...noteLines(ctx.cwd, hit.entry), hit.snippet, `Matched: ${hit.matches.join(", ")}`].join("\n")).join("\n\n")}\n\nPass refs to read entries in full.`
         : 'No matches. Try other keywords, or "*" to list every entry.';
       return {
-        content: text(body),
+        content: resultText(body),
         details: { refs: hits.map((hit) => entryLabel(hit.entry)) },
       };
     },

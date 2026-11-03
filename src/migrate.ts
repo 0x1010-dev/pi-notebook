@@ -151,7 +151,7 @@ export function planMigration(options: MigrationOptions): MigrationPlan {
     checkReferences("Rules", content);
     warnings.push("Rules: copied verbatim to originals/rules.md, not installed or rewritten. Review user instructions separately.");
   }
-  files.push({ path: "notebook/.gitignore", content: "handoff.md\n" });
+  files.push({ path: "notebook/.gitignore", content: "handoff.md\nhandoff.previous.md\nhandoff.*.tmp\n" });
   files.push({ path: "reference-map.json", content: `${JSON.stringify(referenceMap, null, 2)}\n` });
   const provenance = entries.map((e) => ({
     oldRef: e.ref, newRef: referenceMap[e.ref] ?? null, source: e.source,

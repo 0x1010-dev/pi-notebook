@@ -35,6 +35,7 @@ the extension does not determine truth.
 .pi/notebook/
   README.md                         generated linked index with previews and tags
   handoff.md                        current work snapshot (git-ignored)
+  handoff.previous.md               one recovery copy (git-ignored, not recalled)
   memories/
     0001-braille-rendering.md
     0002-deployment-verification.md
@@ -59,13 +60,22 @@ Use the library's canonical dot table rather than a custom bit formula.
 The renderer's mask tests cover the standard left and right columns.
 ```
 
-Humans can edit these files directly, including headings and metadata. Lists in
-frontmatter use JSON array notation (also valid YAML). Keep numeric filename IDs
-unique. Invalid files produce an explicit error rather than silently disappearing.
+Humans can edit these files directly, including headings and YAML metadata.
+Lists accept JSON notation, unquoted YAML arrays such as `[braille, ratatui]`,
+or indented YAML lists. Quote numeric-looking tags and commit hashes so they remain
+strings. Keep numeric filename IDs unique.
+
+A malformed file is excluded without disabling valid memories. The status line,
+browser overview, generated index and search results report its path and reason;
+session notifications also warn when the diagnostics change. Repair the original
+file to make it available again. Conflicting IDs exclude all conflicting files,
+and even malformed files reserve their numeric IDs.
 
 The generated index links to memories, the handoff, and related source paths, and
-shows code-staleness warnings. It refreshes after notebook writes and before model
-prompts or searches. Do not edit the index itself. Related source links inside a
+shows saved code baselines, not live code-staleness warnings. It refreshes after
+notebook writes, on changed prompt snapshots, or searches, without running Git.
+Live freshness checks remain in the browser and targeted recall/search.
+Do not edit the index itself. Related source links inside a
 memory's own prose should be relative to that memory file.
 
 Normal reads, listings, grep and shell browsing are allowed. The model is instructed
@@ -125,6 +135,13 @@ Optional `blockers` and `notes` are cleared when omitted. This deliberately avoi
 silently retaining contradictory fragments. Empty next actions mean work is done.
 The result echoes the whole handoff for review.
 
+Replacement is atomic and preserves the previous file verbatim as
+`handoff.previous.md`. Only one previous version is kept; it is not searched or
+injected. Both files are Git-ignored. To recover from an incorrect update, inspect
+the previous file and copy its contents back to `handoff.md` manually before another
+update replaces the recovery copy. This protects against accidental replacements,
+not disk loss; keep independent backups for that.
+
 ### `memory_delete`
 
 Pass `refs` and a reason. The user must confirm permanent removal of the files.
@@ -160,7 +177,6 @@ There is no automatic extraction or verification by another model.
 | `/nb:remember <text>` | Add a user rule without the model |
 | `/nb:prefs` | Edit rules |
 | `/nb:forget M1 [reason]` | Permanently delete obsolete memories after confirmation |
-| `/nb:learn [topic]` | Look for useful knowledge gaps, not comprehensive documentation |
 | `/nb:wrap` | Save worthwhile knowledge and reconcile unfinished work |
 | `/nb:curate` | Verify claims, reconcile contradictions and consolidate current knowledge |
 

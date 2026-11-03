@@ -8,7 +8,7 @@ import {
 import { clip, entryPreview, metadataLines } from "./format.ts";
 import { createStalenessChecker } from "./git.ts";
 import type { Project, Scope } from "./paths.ts";
-import { type Entry, type Handoff, ref } from "./store.ts";
+import { diagnosticText, type Entry, type Handoff, ref } from "./store.ts";
 import { ago, counts, STALE_MS, type StatusInfo } from "./ui.ts";
 
 /** Scroll offset kept inside the content. */
@@ -392,6 +392,9 @@ export class NotebookView {
     const { th, data } = this;
     const lines: string[] = [];
     const entries: NonNullable<Body["entries"]> = [];
+    const diagnostics = diagnosticText(data.diagnostics ?? []);
+    if (diagnostics)
+      lines.push(...hang("  ", th.fg("warning", diagnostics), width), "");
     if (data.project && !data.scope)
       lines.push(
         `  ${th.fg("dim", "No notebook for this project. Run")} ${th.fg("accent", "/nb:init")} ${th.fg("dim", "or save something.")}`,
