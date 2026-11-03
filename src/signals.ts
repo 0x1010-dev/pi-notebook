@@ -32,7 +32,7 @@ export const HANDOFF_BAND = 1;
 export const COMPACT_BAND = 2;
 
 export function usageText(percent: number): string {
-  return `[pi-notebook] Context ${Math.round(percent)}% used.`;
+  return `[pi-notebook] Context window ${Math.round(percent)}% full.`;
 }
 
 export function bandText(
@@ -40,13 +40,13 @@ export function bandText(
   band: number,
   opts: { handoff: boolean; compactTool: boolean },
 ): string {
-  const p = Math.round(percent);
+  const usage = usageText(percent);
   const b = opts.handoff ? band : SAVE_BAND;
   if (b === SAVE_BAND)
-    return `[pi-notebook] Context ${p}%. Consider saving any durable knowledge worth keeping.`;
+    return `${usage} Consider saving any durable knowledge worth keeping.`;
   if (b === HANDOFF_BAND)
-    return `[pi-notebook] Context ${p}%. Consider updating the handoff if progress has changed.`;
+    return `${usage} Consider updating the handoff if progress has changed.`;
   return opts.compactTool
-    ? `[pi-notebook] Context ${p}%. Compaction is near. At the next clean stopping point, update the handoff and call context_compact.`
-    : `[pi-notebook] Context ${p}%. Compaction is near. At the next clean stopping point, update the handoff.`;
+    ? `${usage} Compaction is near. At the next clean stopping point, update the handoff and call context_compact.`
+    : `${usage} Compaction is near. At the next clean stopping point, update the handoff.`;
 }

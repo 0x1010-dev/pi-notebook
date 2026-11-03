@@ -168,8 +168,8 @@ Optional hidden nudges occur at commits and as context fills up, not after arbit
 tool failures or a quota of unsaved turns. They explicitly permit saving nothing.
 There is no automatic extraction or verification by another model.
 
-Past the first context band, each model request carries a bare usage line such as
-`Context 62% used.` It is not stored in the session, so it neither accumulates nor
+Past the compaction band, each model request carries a bare usage line such as
+`Context window 88% full.` It is not stored in the session, so it neither accumulates nor
 disturbs prompt caching. The suggested action is sent once when usage first crosses
 each band, and again after compaction: consider saving knowledge (50%), consider
 updating the handoff (70%), then update the handoff at the next clean stopping

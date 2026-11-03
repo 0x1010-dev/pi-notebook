@@ -85,18 +85,18 @@ test("a stale handoff is still used, with a warning", async () => {
   assert.match(result.compaction.summary, /may be out of date/);
 });
 
-test("each request past the first band carries only a bare usage line", async () => {
+test("each request past the compaction band carries only a bare usage line", async () => {
   const h = harness();
   const messages = [{ role: "user", content: "hi" }];
-  h.setUsage(40);
+  h.setUsage(72);
   assert.equal(await h.emit("context", { messages }), undefined);
-  h.setUsage(72.4);
+  h.setUsage(87.4);
   const result = await h.emit("context", { messages });
   assert.equal(result.messages.length, 2);
   const note = result.messages.at(-1);
   assert.equal(note.role, "custom");
   assert.equal(note.display, false);
-  assert.equal(note.content, "[pi-notebook] Context 72% used.");
+  assert.equal(note.content, "[pi-notebook] Context window 87% full.");
   assert.equal(messages.length, 1);
 });
 

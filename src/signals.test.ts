@@ -40,19 +40,19 @@ test("bandText matches each band's exact wording", () => {
   const handoff = { handoff: true, compactTool: false };
   assert.equal(
     bandText(50.4, 0, handoff),
-    "[pi-notebook] Context 50%. Consider saving any durable knowledge worth keeping.",
+    "[pi-notebook] Context window 50% full. Consider saving any durable knowledge worth keeping.",
   );
   assert.equal(
     bandText(70, 1, handoff),
-    "[pi-notebook] Context 70%. Consider updating the handoff if progress has changed.",
+    "[pi-notebook] Context window 70% full. Consider updating the handoff if progress has changed.",
   );
   assert.equal(
     bandText(85, 2, handoff),
-    "[pi-notebook] Context 85%. Compaction is near. At the next clean stopping point, update the handoff.",
+    "[pi-notebook] Context window 85% full. Compaction is near. At the next clean stopping point, update the handoff.",
   );
   assert.equal(
     bandText(85, 2, { handoff: true, compactTool: true }),
-    "[pi-notebook] Context 85%. Compaction is near. At the next clean stopping point, update the handoff and call context_compact.",
+    "[pi-notebook] Context window 85% full. Compaction is near. At the next clean stopping point, update the handoff and call context_compact.",
   );
 });
 
@@ -60,6 +60,6 @@ test("bandText falls back to the band 0 wording without a project handoff", () =
   const noHandoff = { handoff: false, compactTool: false };
   assert.equal(
     bandText(85, 2, noHandoff),
-    "[pi-notebook] Context 85%. Consider saving any durable knowledge worth keeping.",
+    "[pi-notebook] Context window 85% full. Consider saving any durable knowledge worth keeping.",
   );
 });
