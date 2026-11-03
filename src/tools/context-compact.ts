@@ -14,6 +14,11 @@ export function registerContextCompact(rt: Runtime): void {
     async execute(_id, _p, _signal, _onUpdate, ctx) {
       const { scope } = locate(ctx.cwd);
       if (!scope) throw new Error("No project notebook. Run /nb:init first.");
+      const percent = ctx.getContextUsage()?.percent;
+      if (percent == null)
+        throw new Error("Context usage is unknown until the next response, usually because compaction just ran. Compaction is not needed; continue the work.");
+      if (percent < (rt.session.cfg.contextBands[0] ?? 0))
+        throw new Error(`Context window is only ${Math.round(percent)}% full. Compaction is not needed; continue the work.`);
       if (!rt.session.handoffFresh())
         throw new Error("Update the handoff with handoff_update first, then call context_compact.");
       rt.session.compactPending = true;

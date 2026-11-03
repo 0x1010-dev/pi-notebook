@@ -3,6 +3,7 @@ import { NUDGE_TYPE } from "../constants.ts";
 import { formatHandoff } from "../inject.ts";
 import { locate, type Runtime } from "../runtime.ts";
 import { readHandoff, type Handoff } from "../store.ts";
+import { resumeText } from "../signals.ts";
 
 function currentHandoff(ctx: ExtensionContext): Handoff | undefined {
   const { scope } = locate(ctx.cwd);
@@ -29,7 +30,7 @@ export function registerCompactionEvents({ pi, session }: Runtime): void {
     };
   });
 
-  function resume(ctx: ExtensionContext): void {
+  function resume(ctx: ExtensionContext, percent?: number): void {
     if (!session.resumePending) return;
     session.resumePending = false;
     const { cfg } = session;
@@ -47,7 +48,7 @@ export function registerCompactionEvents({ pi, session }: Runtime): void {
     pi.sendMessage(
       {
         customType: NUDGE_TYPE,
-        content: "[pi-notebook] Context was compacted. Continue the work from the handoff.",
+        content: resumeText(percent),
         display: false,
       },
       { triggerTurn: true },
@@ -62,7 +63,12 @@ export function registerCompactionEvents({ pi, session }: Runtime): void {
     }
     if (session.compactPending) {
       ctx.compact({
-        onComplete: () => resume(ctx),
+        // pi reports no usage until the next response, so estimate it from the compaction result.
+        onComplete: (result) => {
+          const window = ctx.getContextUsage()?.contextWindow ?? ctx.model?.contextWindow;
+          const after = result.estimatedTokensAfter;
+          resume(ctx, window && after !== undefined ? (after / window) * 100 : undefined);
+        },
         onError: (e) => {
           session.compactPending = false;
           if (ctx.hasUI) ctx.ui.notify(`Compaction failed: ${e.message}`, "error");

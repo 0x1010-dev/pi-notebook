@@ -154,11 +154,13 @@ test("the compaction band mentions context_compact only when it is offered", asy
 test("a scheduled compaction runs when the agent settles, then resumes the work", async () => {
   const h = harness();
   h.session.compactPending = true;
+  h.setUsage(null);
   await h.emit("agent_settled", { aborted: false });
   assert.equal(h.compactions.length, 1);
   h.session.onCompact();
-  h.compactions[0].onComplete?.(undefined as never);
+  h.compactions[0].onComplete?.({ estimatedTokensAfter: 15 } as never);
   assert.equal(h.sent.length, 1);
+  assert.match((h.sent[0].message as { content: string }).content, /Context window is now 15% full/);
   assert.deepEqual(h.sent[0].options, { triggerTurn: true });
   assert.equal(h.session.compactCycles, 1);
 });

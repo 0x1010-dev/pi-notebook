@@ -35,6 +35,11 @@ export function usageText(percent: number): string {
   return `[pi-notebook] Context window ${Math.round(percent)}% full.`;
 }
 
+export function resumeText(percent: number | undefined): string {
+  const usage = percent === undefined ? "" : ` Context window is now ${Math.round(percent)}% full.`;
+  return `[pi-notebook] Compaction is complete.${usage} Earlier messages are already handled; continue from the handoff's next steps.`;
+}
+
 export function bandText(
   percent: number,
   band: number,

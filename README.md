@@ -180,8 +180,10 @@ point (70%).
 With `handoffCompaction: true` (the default), compaction uses the project handoff as its summary
 instead of an LLM summary; pi still keeps its recent-message tail verbatim. The
 model gets a `context_compact` tool, which only accepts a call when this session
-updated the handoff within `handoffStaleTurns` turns. Compaction runs after the
-response ends, then work resumes from the handoff automatically. Auto-continue
+updated the handoff within `handoffStaleTurns` turns and usage has reached the first
+context band. Compaction runs after the
+response ends, then work resumes from the handoff automatically with a note giving
+the new usage. Auto-continue
 stops when the handoff has no next steps, after `maxCompactCycles`, or when the
 user interrupts. If pi compacts on its own while the handoff is stale, the handoff
 is still used and marked as possibly out of date; pi's recent-message tail covers

@@ -55,9 +55,11 @@ function harness() {
   let accepted = true;
   let projectOnly = false;
   let cancelled = false;
+  let percent: number | null = 50;
   const selections: string[][] = [];
   const ctx = partialMock<ExtensionToolContext>({
     cwd, hasUI: true,
+    getContextUsage: () => ({ tokens: null, contextWindow: 100, percent }),
     ui: partialMock<ExtensionToolContext["ui"]>({
       async confirm() { confirms++; return accepted; },
       async select(_title, options) {
@@ -81,6 +83,7 @@ function harness() {
     decline() { accepted = false; },
     projectOnly() { projectOnly = true; },
     cancel() { cancelled = true; },
+    setUsage(value: number | null) { percent = value; },
     selections,
     async call(name: string, args: Record<string, unknown>) {
       const tool = tools.get(name)!;
@@ -124,6 +127,16 @@ test("context_compact requires a recent handoff from this session", async () => 
   h.session.compactPending = false;
   for (let i = 0; i <= h.session.cfg.handoffStaleTurns; i++) h.session.endTurn({ contextPercent: 0 });
   await assert.rejects(h.call("context_compact", {}), /handoff_update first/);
+  assert.equal(h.session.compactPending, false);
+});
+
+test("context_compact refuses when compaction is not needed", async () => {
+  const h = harness();
+  await h.call("handoff_update", { goal: "Migrate", status: "Half done", next_steps: ["Finish"] });
+  h.setUsage(15.2);
+  await assert.rejects(h.call("context_compact", {}), /only 15% full/);
+  h.setUsage(null);
+  await assert.rejects(h.call("context_compact", {}), /compaction just ran/);
   assert.equal(h.session.compactPending, false);
 });
 
