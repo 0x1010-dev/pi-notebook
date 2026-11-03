@@ -42,7 +42,7 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   refreshSection: "session",
   autoRecall: 3,
   statusPlacement: "aboveEditor",
-  handoffCompaction: false,
+  handoffCompaction: true,
   handoffStaleTurns: 5,
   maxCompactCycles: 20,
 };

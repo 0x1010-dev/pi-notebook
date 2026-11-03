@@ -173,9 +173,9 @@ the first band: consider saving knowledge (50%), consider updating the handoff
 (70%), then update the handoff at the next clean stopping point (85%). The note is
 not stored in the session, so it neither accumulates nor disturbs prompt caching.
 
-### Handoff compaction (opt-in)
+### Handoff compaction
 
-With `handoffCompaction: true`, compaction uses the project handoff as its summary
+With `handoffCompaction: true` (the default), compaction uses the project handoff as its summary
 instead of an LLM summary; pi still keeps its recent-message tail verbatim. The
 model gets a `context_compact` tool, which only accepts a call when this session
 updated the handoff within `handoffStaleTurns` turns. Compaction runs after the
@@ -218,7 +218,7 @@ Under `notebook` in `~/.pi/agent/settings.json`:
   "refreshSection": "session",
   "autoRecall": 3,
   "statusPlacement": "aboveEditor",
-  "handoffCompaction": false,
+  "handoffCompaction": true,
   "handoffStaleTurns": 5,
   "maxCompactCycles": 20
 }

@@ -56,7 +56,9 @@ function harness({ handoff = true, nextSteps = ["Finish"] } = {}) {
 const beforeCompact = { preparation: { firstKeptEntryId: "e42", tokensBefore: 150_000 } };
 
 test("session_before_compact leaves pi's summary alone when disabled or without a handoff", async () => {
-  assert.equal(await harness().emit("session_before_compact", beforeCompact), undefined);
+  const off = harness();
+  off.session.cfg.handoffCompaction = false;
+  assert.equal(await off.emit("session_before_compact", beforeCompact), undefined);
   const h = harness({ handoff: false });
   h.session.cfg.handoffCompaction = true;
   assert.equal(await h.emit("session_before_compact", beforeCompact), undefined);
@@ -112,6 +114,7 @@ test("the compaction band mentions context_compact only when it is offered", asy
   const h = harness();
   const messages = [{ role: "user", content: "hi" }];
   h.setUsage(90);
+  h.session.cfg.handoffCompaction = false;
   let result = await h.emit("context", { messages });
   assert.doesNotMatch(result.messages.at(-1).content, /context_compact/);
   h.session.cfg.handoffCompaction = true;
