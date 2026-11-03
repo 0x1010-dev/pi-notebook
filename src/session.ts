@@ -1,5 +1,5 @@
 import { loadConfig } from "./config.ts";
-import { COMMIT_RE, type NudgeKind } from "./signals.ts";
+import { COMMIT_RE, HANDOFF_BAND } from "./signals.ts";
 
 export interface ContextFile {
   path: string;
@@ -20,7 +20,7 @@ export interface TurnInput {
 /** Everything that changes while a session runs. */
 export class Session {
   cfg = loadConfig();
-  pendingNudge: NudgeKind | undefined;
+  pendingNudge = false;
   suppressNudgeOnce = false;
   handoffShown = false;
   recalled = new Map<string, string>();
@@ -29,10 +29,21 @@ export class Session {
   loadWarning = "";
   /** Guard warnings keyed by tool call id, appended to that call's result. */
   readonly warnings = new Map<string, string>();
+  /** Turns elapsed in this session. */
+  turn = 0;
+  /** Turn when this session last saved the handoff. */
+  handoffTurn: number | undefined;
+  /** Set by context_compact; consumed by the agent_settled handler. */
+  compactPending = false;
+  /** Set once compaction completes for a scheduled context_compact; tells agent_settled to continue the work. */
+  resumePending = false;
+  /** Auto-continue cycles used so far this session. */
+  compactCycles = 0;
+  /** The handoff is already the compaction summary, so it should not be shown again as a resume note. */
+  handoffCompacted = false;
 
   private committed = false;
-  private turnsSinceNudge = 0;
-  private contextNudged = false;
+  private lastNudgeTurn = 0;
 
   /** Start of a session: reload config and clear all per-session state. */
   reset(): void {
@@ -40,22 +51,39 @@ export class Session {
     this.invalidate();
     this.recalled = new Map();
     this.handoffShown = false;
-    this.pendingNudge = undefined;
+    this.pendingNudge = false;
     this.suppressNudgeOnce = false;
     this.warnings.clear();
     this.loadWarning = "";
     this.committed = false;
-    this.turnsSinceNudge = this.cfg.nudgeCooldownTurns;
-    this.contextNudged = false;
+    this.turn = 0;
+    this.lastNudgeTurn = -this.cfg.nudgeCooldownTurns;
+    this.handoffTurn = undefined;
+    this.compactPending = false;
+    this.resumePending = false;
+    this.compactCycles = 0;
+    this.handoffCompacted = false;
   }
 
   /** Compaction drops earlier context, so re-inject and allow nudges again. */
   onCompact(): void {
+    this.resumePending = this.compactPending;
     this.invalidate();
     this.recalled.clear();
-    this.pendingNudge = undefined;
-    this.contextNudged = false;
-    this.handoffShown = false;
+    this.pendingNudge = false;
+    this.compactPending = false;
+    if (this.handoffCompacted) {
+      this.handoffShown = true;
+      this.handoffCompacted = false;
+    } else {
+      this.handoffShown = false;
+    }
+  }
+
+  /** Compaction never happened, so the handoff is not a compaction summary and nothing is pending. */
+  onCompactFailed(): void {
+    this.handoffCompacted = false;
+    this.compactPending = false;
   }
 
   invalidate(): void {
@@ -66,8 +94,19 @@ export class Session {
   /** Something durable was written, so earlier nudges are satisfied. */
   markSaved(): void {
     this.committed = false;
-    this.pendingNudge = undefined;
+    this.pendingNudge = false;
     this.invalidate();
+  }
+
+  /** This session saved the handoff at the current turn. */
+  markHandoff(): void {
+    this.handoffTurn = this.turn;
+  }
+
+  /** Whether this session's handoff was saved recently enough to trust as a compaction summary. */
+  handoffFresh(): boolean {
+    return this.handoffTurn !== undefined &&
+      this.turn - this.handoffTurn <= this.cfg.handoffStaleTurns;
   }
 
   recordToolResult(toolName: string, command: unknown, isError: boolean): void {
@@ -79,18 +118,19 @@ export class Session {
       this.committed = true;
   }
 
-  /** Advances turn counters and returns the nudge to send, updating state for it. */
-  endTurn(input: TurnInput): NudgeKind | undefined {
-    this.turnsSinceNudge++;
+  /** Advances the turn and returns whether to send the milestone nudge. */
+  endTurn(input: TurnInput): boolean {
+    this.turn++;
     const { cfg } = this;
-    const high = cfg.wrapAtContextPercent > 0 && !this.contextNudged &&
-      input.contextPercent >= cfg.wrapAtContextPercent;
-    const kind = high ? "context" : this.committed &&
-      this.turnsSinceNudge >= cfg.nudgeCooldownTurns ? "milestone" : undefined;
-    if (!kind) return undefined;
-    this.turnsSinceNudge = 0;
-    if (kind === "context") this.contextNudged = true;
-    if (kind === "milestone") this.committed = false;
-    return kind;
+    const handoffBand = cfg.contextBands[HANDOFF_BAND];
+    if (handoffBand !== undefined && input.contextPercent >= handoffBand) {
+      this.committed = false;
+      return false;
+    }
+    if (!this.committed || this.turn - this.lastNudgeTurn < cfg.nudgeCooldownTurns)
+      return false;
+    this.lastNudgeTurn = this.turn;
+    this.committed = false;
+    return true;
   }
 }

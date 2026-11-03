@@ -252,7 +252,7 @@ export function preview(e: Pick<Entry, "body">, max = 240): string {
   return `${flat.slice(0, end > max / 2 ? end : max - 3)}...`;
 }
 
-function markdownText(text: string): string {
+export function markdownText(text: string): string {
   return oneLine(text).replace(/([\\`*_[\]<>#!|])/g, "\\$1");
 }
 

@@ -2,7 +2,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSy
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
 import type { ScopeKind } from "./paths.ts";
-import { oneLine, refreshIndex, slugify } from "./store.ts";
+import { markdownText, oneLine, refreshIndex, slugify } from "./store.ts";
 import { findSecret } from "./validate.ts";
 
 interface LegacyEntry {
@@ -58,10 +58,6 @@ function references(text: string): string[] {
 
 function rewriteReferences(text: string, map: Record<string, string>): string {
   return text.replace(/(?<![\w~])~?[DLN][1-9]\d*\b/gi, (value) => map[value.toUpperCase()] ?? value);
-}
-
-function markdown(text: string): string {
-  return oneLine(text).replace(/([\\`*_[\]<>#!|])/g, "\\$1");
 }
 
 /** Read-only planning: no source files are edited and no knowledge is re-verified. */
@@ -173,12 +169,12 @@ export function planMigration(options: MigrationOptions): MigrationPlan {
     "- Test representative retrieval queries before installing the staged notebook.",
     "- Do not treat this partial originals snapshot as a backup of all source-directory contents.", "",
     "## Reference map", "",
-    ...active.map((e) => `- ${e.ref} -> ${referenceMap[e.ref]}: ${markdown(e.meta.title)}`), "",
+    ...active.map((e) => `- ${e.ref} -> ${referenceMap[e.ref]}: ${markdownText(e.meta.title)}`), "",
     "## Historical entries (not activated)", "",
     ...entries.filter((e) => !referenceMap[e.ref]).map((e) =>
-      `- ${e.ref} (${e.meta.status}): ${markdown(e.meta.title)}; original: originals/${e.source}`), "",
+      `- ${e.ref} (${e.meta.status}): ${markdownText(e.meta.title)}; original: originals/${e.source}`), "",
     "## Warnings", "",
-    ...(warnings.length ? warnings.map((w) => `- ${markdown(w)}`) : ["None detected mechanically. Human review is still required."]), "",
+    ...(warnings.length ? warnings.map((w) => `- ${markdownText(w)}`) : ["None detected mechanically. Human review is still required."]), "",
     "See provenance.json for original metadata and content hashes; reference-map.json for machine-readable mappings.",
   ].join("\n");
   files.push({ path: "REVIEW.md", content: `${report}\n` });

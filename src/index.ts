@@ -7,11 +7,14 @@ import {
   registerRememberCommand,
 } from "./commands/rules.ts";
 import { registerShowCommand } from "./commands/show.ts";
+import { registerCompactionEvents } from "./events/compaction.ts";
+import { registerContextEvents } from "./events/context.ts";
 import { registerPromptEvents } from "./events/prompt.ts";
 import { registerSessionEvents } from "./events/session.ts";
 import { registerToolEvents } from "./events/tools.ts";
 import { registerTurnEvents } from "./events/turns.ts";
 import { createRuntime } from "./runtime.ts";
+import { registerContextCompact } from "./tools/context-compact.ts";
 import { registerHandoffUpdate } from "./tools/handoff-update.ts";
 import { registerMemoryDelete } from "./tools/memory-delete.ts";
 import { registerMemorySave } from "./tools/memory-save.ts";
@@ -24,11 +27,14 @@ export default function notebook(pi: ExtensionAPI): void {
   registerPromptEvents(rt);
   registerToolEvents(rt);
   registerTurnEvents(rt);
+  registerContextEvents(rt);
+  registerCompactionEvents(rt);
 
   registerMemorySave(rt);
   registerMemorySearch(rt);
   registerHandoffUpdate(rt);
   registerMemoryDelete(rt);
+  if (rt.session.cfg.handoffCompaction) registerContextCompact(rt);
 
   registerShowCommand(rt);
   registerInitCommand(rt);

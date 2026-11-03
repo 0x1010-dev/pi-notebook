@@ -164,9 +164,26 @@ snapshot stays stable until notebook content changes (or `refreshSection` is
 `turn`). Resume-like prompts receive the full handoff once per session or
 compaction cycle.
 
-Optional hidden nudges occur at commits and before compaction—not after arbitrary
+Optional hidden nudges occur at commits and as context fills up, not after arbitrary
 tool failures or a quota of unsaved turns. They explicitly permit saving nothing.
 There is no automatic extraction or verification by another model.
+
+Context bands add a one-line usage note to each model request once usage passes
+the first band: consider saving knowledge (50%), consider updating the handoff
+(70%), then update the handoff at the next clean stopping point (85%). The note is
+not stored in the session, so it neither accumulates nor disturbs prompt caching.
+
+### Handoff compaction (opt-in)
+
+With `handoffCompaction: true`, compaction uses the project handoff as its summary
+instead of an LLM summary; pi still keeps its recent-message tail verbatim. The
+model gets a `context_compact` tool, which only accepts a call when this session
+updated the handoff within `handoffStaleTurns` turns. Compaction runs after the
+response ends, then work resumes from the handoff automatically. Auto-continue
+stops when the handoff has no next steps, after `maxCompactCycles`, or when the
+user interrupts. If pi compacts on its own while the handoff is stale, the handoff
+is still used and marked as possibly out of date; pi's recent-message tail covers
+the gap. Without a handoff, pi's default compaction runs.
 
 ## Commands
 
@@ -195,17 +212,20 @@ Under `notebook` in `~/.pi/agent/settings.json`:
   "injectBudgetTokens": 1500,
   "globalIndexLimit": 20,
   "nudgeCooldownTurns": 16,
-  "wrapAtContextPercent": 50,
+  "contextBands": [50, 70, 85],
   "nudgeModel": true,
   "guard": true,
   "refreshSection": "session",
   "autoRecall": 3,
-  "statusPlacement": "aboveEditor"
+  "statusPlacement": "aboveEditor",
+  "handoffCompaction": false,
+  "handoffStaleTurns": 5,
+  "maxCompactCycles": 20
 }
 ```
 
-`autoRecall: 0` disables automatic memory recall; `wrapAtContextPercent: 0`
-disables the context nudge. Budgets use an approximate four characters per token,
+`autoRecall: 0` disables automatic memory recall; `contextBands: []` disables the
+context bands. Budgets use an approximate four characters per token,
 not the model's tokenizer. Status placement also supports `belowEditor` or `footer`.
 
 ## Breaking format change

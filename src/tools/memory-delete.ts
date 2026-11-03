@@ -24,10 +24,6 @@ export function registerMemoryDelete(rt: Runtime): void {
     executionMode: "sequential",
 
     async execute(_id, p, _signal, _onUpdate, ctx) {
-      if (!ctx.hasUI)
-        throw new Error(
-          "Deleting memories needs user confirmation, which is unavailable in this mode.",
-        );
       const r = await deleteRefs(rt, ctx, p.refs, p.reason);
       return {
         content: text(r.message),

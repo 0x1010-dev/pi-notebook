@@ -28,4 +28,8 @@ export function registerSessionEvents({
     session.onCompact();
     refreshStatus(ctx);
   });
+
+  pi.on("session_compact_failed", async () => {
+    session.onCompactFailed();
+  });
 }

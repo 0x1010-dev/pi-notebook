@@ -1,6 +1,6 @@
 import { NUDGE_TYPE } from "../constants.ts";
 import { type Runtime } from "../runtime.ts";
-import { nudgeText } from "../signals.ts";
+import { MILESTONE_NUDGE } from "../signals.ts";
 
 export function registerTurnEvents({
   pi,
@@ -8,14 +8,14 @@ export function registerTurnEvents({
   refreshStatus,
 }: Runtime): void {
   pi.on("turn_end", async (event, ctx) => {
-    const kind = session.endTurn({
+    const nudge = session.endTurn({
       contextPercent: ctx.getContextUsage()?.percent ?? 0,
     });
     refreshStatus(ctx);
-    if (!kind || !session.cfg.nudgeModel) return;
+    if (!nudge || !session.cfg.nudgeModel) return;
     // A final turn has no next request in this run, so defer to the next prompt.
     if (event.toolResults.length === 0) {
-      session.pendingNudge = kind;
+      session.pendingNudge = true;
       return;
     }
     return {
@@ -23,7 +23,7 @@ export function registerTurnEvents({
         {
           type: "custom_message",
           customType: NUDGE_TYPE,
-          content: nudgeText(kind),
+          content: MILESTONE_NUDGE,
           display: false,
         },
       ],

@@ -13,6 +13,7 @@ import { registerMemorySave } from "./tools/memory-save.ts";
 import { registerMemorySearch } from "./tools/memory-search.ts";
 import { registerHandoffUpdate } from "./tools/handoff-update.ts";
 import { registerMemoryDelete } from "./tools/memory-delete.ts";
+import { registerContextCompact } from "./tools/context-compact.ts";
 
 const root = mkdtempSync(join(tmpdir(), "nb-tools-"));
 after(() => rmSync(root, { recursive: true }));
@@ -73,6 +74,7 @@ function harness() {
   registerMemorySearch(rt);
   registerHandoffUpdate(rt);
   registerMemoryDelete(rt);
+  registerContextCompact(rt);
   return {
     session, ctx,
     get confirms() { return confirms; },
@@ -110,6 +112,19 @@ test("registered tools save, update, search, read and permanently delete memorie
   assert.match(JSON.stringify(missing.content), /Not found: M1/);
   assert.deepEqual(listAll(locate(h.ctx.cwd).scope!), []);
   assert.equal(h.confirms, 1);
+});
+
+test("context_compact requires a recent handoff from this session", async () => {
+  const h = harness();
+  await assert.rejects(h.call("context_compact", {}), /handoff_update first/);
+  await h.call("handoff_update", { goal: "Migrate", status: "Half done", next_steps: ["Finish"] });
+  const scheduled = await h.call("context_compact", {});
+  assert.match(JSON.stringify(scheduled.content), /Compaction scheduled/);
+  assert.equal(h.session.compactPending, true);
+  h.session.compactPending = false;
+  for (let i = 0; i <= h.session.cfg.handoffStaleTurns; i++) h.session.endTurn({ contextPercent: 0 });
+  await assert.rejects(h.call("context_compact", {}), /handoff_update first/);
+  assert.equal(h.session.compactPending, false);
 });
 
 test("search reports malformed files while valid memories remain usable", async () => {

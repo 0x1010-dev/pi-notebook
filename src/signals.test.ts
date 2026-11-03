@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { COMMIT_RE, looksLikePreference, looksLikeResume, nudgeText } from "./signals.ts";
+import { bandIndex, bandText, COMMIT_RE, looksLikePreference, looksLikeResume, MILESTONE_NUDGE } from "./signals.ts";
 
 test("resume detection", () => {
   for (const text of ["Where did we end up yesterday?", "What's the plan for today?", "let's continue", "catch me up"])
@@ -22,6 +22,44 @@ test("commit detection", () => {
 });
 
 test("nudges explicitly permit saving nothing and avoid memory quotas", () => {
-  assert.match(nudgeText("context"), /Saving no new memories is fine/);
-  assert.match(nudgeText("milestone"), /Otherwise ignore/);
+  assert.match(MILESTONE_NUDGE, /Otherwise ignore/);
+});
+
+test("bandIndex finds the highest reached threshold", () => {
+  const bands = [50, 70, 85];
+  assert.equal(bandIndex(40, bands), -1);
+  assert.equal(bandIndex(50, bands), 0);
+  assert.equal(bandIndex(65, bands), 0);
+  assert.equal(bandIndex(70, bands), 1);
+  assert.equal(bandIndex(85, bands), 2);
+  assert.equal(bandIndex(99, bands), 2);
+  assert.equal(bandIndex(50, []), -1);
+});
+
+test("bandText matches each band's exact wording", () => {
+  const handoff = { handoff: true, compactTool: false };
+  assert.equal(
+    bandText(50.4, 0, handoff),
+    "[pi-notebook] Context 50%. Consider saving any durable knowledge worth keeping.",
+  );
+  assert.equal(
+    bandText(70, 1, handoff),
+    "[pi-notebook] Context 70%. Consider updating the handoff if progress has changed.",
+  );
+  assert.equal(
+    bandText(85, 2, handoff),
+    "[pi-notebook] Context 85%. Compaction is near. At the next clean stopping point, update the handoff.",
+  );
+  assert.equal(
+    bandText(85, 2, { handoff: true, compactTool: true }),
+    "[pi-notebook] Context 85%. Compaction is near. At the next clean stopping point, update the handoff and call context_compact.",
+  );
+});
+
+test("bandText falls back to the band 0 wording without a project handoff", () => {
+  const noHandoff = { handoff: false, compactTool: false };
+  assert.equal(
+    bandText(85, 2, noHandoff),
+    "[pi-notebook] Context 85%. Consider saving any durable knowledge worth keeping.",
+  );
 });

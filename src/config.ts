@@ -9,10 +9,10 @@ export interface NotebookConfig {
   injectBudgetTokens: number;
   /** Most recent global entries listed in the injected index. */
   globalIndexLimit: number;
-  /** Minimum turns between nudges (the context nudge ignores it). */
+  /** Minimum turns between nudges. */
   nudgeCooldownTurns: number;
-  /** Context usage percent that triggers a save-before-compaction nudge. 0 disables. */
-  wrapAtContextPercent: number;
+  /** Context usage percents (ascending) for: save reminder, handoff reminder, compaction reminder. [] disables. */
+  contextBands: number[];
   /** Send short hidden nudges to the model when signals fire. */
   nudgeModel: boolean;
   /** Block direct model file-tool writes to notebook files (not a shell security boundary). */
@@ -23,6 +23,12 @@ export interface NotebookConfig {
   autoRecall: number;
   /** Where the status shows: shared footer status, or a row of its own near the editor. */
   statusPlacement: "footer" | "belowEditor" | "aboveEditor";
+  /** Use the handoff as the compaction summary and offer context_compact. */
+  handoffCompaction: boolean;
+  /** Turns after which this session's handoff counts as stale. */
+  handoffStaleTurns: number;
+  /** Auto-continue cap per session. */
+  maxCompactCycles: number;
 }
 
 export const DEFAULT_CONFIG: NotebookConfig = {
@@ -30,12 +36,15 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   injectBudgetTokens: 1500,
   globalIndexLimit: 20,
   nudgeCooldownTurns: 16,
-  wrapAtContextPercent: 50,
+  contextBands: [50, 70, 85],
   nudgeModel: true,
   guard: true,
   refreshSection: "session",
   autoRecall: 3,
   statusPlacement: "aboveEditor",
+  handoffCompaction: false,
+  handoffStaleTurns: 5,
+  maxCompactCycles: 20,
 };
 
 /** Reads the "notebook" key of Pi's settings.json. */
@@ -53,17 +62,22 @@ export function loadConfig(): NotebookConfig {
       "injectBudgetTokens",
       "globalIndexLimit",
       "nudgeCooldownTurns",
+      "handoffStaleTurns",
+      "maxCompactCycles",
     ] as const) {
-      if (typeof raw[key] === "number" && raw[key] > 0) cfg[key] = raw[key];
+      if (typeof raw[key] === "number" && raw[key] >= 1) cfg[key] = Math.floor(raw[key]);
     }
-    if (
-      typeof raw.wrapAtContextPercent === "number" &&
-      raw.wrapAtContextPercent >= 0 &&
-      raw.wrapAtContextPercent <= 100
-    )
-      cfg.wrapAtContextPercent = raw.wrapAtContextPercent;
+    if (Array.isArray(raw.contextBands)) {
+      const bands = raw.contextBands;
+      const valid = bands.length <= 3 &&
+        bands.every((b: unknown) => typeof b === "number" && Number.isFinite(b) && b > 0 && b <= 100) &&
+        bands.every((b: number, i: number) => i === 0 || b > bands[i - 1]);
+      if (valid) cfg.contextBands = bands;
+    }
     if (typeof raw.nudgeModel === "boolean") cfg.nudgeModel = raw.nudgeModel;
     if (typeof raw.guard === "boolean") cfg.guard = raw.guard;
+    if (typeof raw.handoffCompaction === "boolean")
+      cfg.handoffCompaction = raw.handoffCompaction;
     if (["footer", "belowEditor", "aboveEditor"].includes(raw.statusPlacement))
       cfg.statusPlacement = raw.statusPlacement;
     if (raw.refreshSection === "session" || raw.refreshSection === "turn")

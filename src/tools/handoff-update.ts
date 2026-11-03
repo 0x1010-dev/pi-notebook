@@ -33,6 +33,7 @@ export function registerHandoffUpdate(rt: Runtime): void {
         notes: p.notes?.trim() ?? "", updated: new Date().toISOString(),
       };
       writeHandoff(scope, saved);
+      rt.session.markHandoff();
       rt.markSaved(ctx);
       return { content: text(`Handoff replaced:\n\n${formatHandoff(saved)}`), details: { goal: saved.goal } };
     },
