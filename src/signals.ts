@@ -31,6 +31,10 @@ export const SAVE_BAND = 0;
 export const HANDOFF_BAND = 1;
 export const COMPACT_BAND = 2;
 
+export function usageText(percent: number): string {
+  return `[pi-notebook] Context ${Math.round(percent)}% used.`;
+}
+
 export function bandText(
   percent: number,
   band: number,

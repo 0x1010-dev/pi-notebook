@@ -109,12 +109,12 @@ test("reset clears per-session state", () => {
   const s = session();
   s.handoffShown = true;
   s.recalled.set("M1", "revision");
-  s.pendingNudge = true;
+  s.pendingNudge = "x";
   s.snapshot = { section: "x", files: [] };
   s.reset();
   assert.equal(s.handoffShown, false);
   assert.equal(s.recalled.size, 0);
-  assert.equal(s.pendingNudge, false);
+  assert.equal(s.pendingNudge, undefined);
   assert.equal(s.snapshot, undefined);
 });
 

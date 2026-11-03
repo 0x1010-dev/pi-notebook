@@ -1,5 +1,5 @@
 import { loadConfig } from "./config.ts";
-import { COMMIT_RE, HANDOFF_BAND } from "./signals.ts";
+import { bandIndex, COMMIT_RE, HANDOFF_BAND } from "./signals.ts";
 
 export interface ContextFile {
   path: string;
@@ -20,7 +20,8 @@ export interface TurnInput {
 /** Everything that changes while a session runs. */
 export class Session {
   cfg = loadConfig();
-  pendingNudge = false;
+  /** Hidden note text waiting for the next user prompt. */
+  pendingNudge: string | undefined;
   suppressNudgeOnce = false;
   handoffShown = false;
   recalled = new Map<string, string>();
@@ -44,6 +45,7 @@ export class Session {
 
   private committed = false;
   private lastNudgeTurn = 0;
+  private bandNoted = -1;
 
   /** Start of a session: reload config and clear all per-session state. */
   reset(): void {
@@ -51,13 +53,14 @@ export class Session {
     this.invalidate();
     this.recalled = new Map();
     this.handoffShown = false;
-    this.pendingNudge = false;
+    this.pendingNudge = undefined;
     this.suppressNudgeOnce = false;
     this.warnings.clear();
     this.loadWarning = "";
     this.committed = false;
     this.turn = 0;
     this.lastNudgeTurn = -this.cfg.nudgeCooldownTurns;
+    this.bandNoted = -1;
     this.handoffTurn = undefined;
     this.compactPending = false;
     this.resumePending = false;
@@ -70,7 +73,8 @@ export class Session {
     this.resumePending = this.compactPending;
     this.invalidate();
     this.recalled.clear();
-    this.pendingNudge = false;
+    this.pendingNudge = undefined;
+    this.bandNoted = -1;
     this.compactPending = false;
     if (this.handoffCompacted) {
       this.handoffShown = true;
@@ -94,8 +98,16 @@ export class Session {
   /** Something durable was written, so earlier nudges are satisfied. */
   markSaved(): void {
     this.committed = false;
-    this.pendingNudge = false;
+    this.pendingNudge = undefined;
     this.invalidate();
+  }
+
+  /** Returns the band first reached since the last compaction, or -1. */
+  crossBand(percent: number): number {
+    const band = bandIndex(percent, this.cfg.contextBands);
+    if (band <= this.bandNoted) return -1;
+    this.bandNoted = band;
+    return band;
   }
 
   /** This session saved the handoff at the current turn. */

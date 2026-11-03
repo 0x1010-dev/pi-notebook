@@ -6,6 +6,7 @@ import { after, test } from "node:test";
 import type { CompactOptions, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerCompactionEvents } from "./events/compaction.ts";
 import { registerContextEvents } from "./events/context.ts";
+import { registerTurnEvents } from "./events/turns.ts";
 import { projectScope } from "./paths.ts";
 import type { Runtime } from "./runtime.ts";
 import { Session } from "./session.ts";
@@ -39,6 +40,7 @@ function harness({ handoff = true, nextSteps = ["Finish"] } = {}) {
   const rt: Runtime = { pi, session, refreshStatus() {}, markSaved() {}, sendOwnPrompt() {} };
   registerCompactionEvents(rt);
   registerContextEvents(rt);
+  registerTurnEvents(rt);
   let usage: { percent: number | null } | undefined;
   const compactions: CompactOptions[] = [];
   const ctx = {
@@ -83,22 +85,22 @@ test("a stale handoff is still used, with a warning", async () => {
   assert.match(result.compaction.summary, /may be out of date/);
 });
 
-test("context bands append one hidden note at the current band", async () => {
+test("each request past the first band carries only a bare usage line", async () => {
   const h = harness();
   const messages = [{ role: "user", content: "hi" }];
   h.setUsage(40);
   assert.equal(await h.emit("context", { messages }), undefined);
-  h.setUsage(72);
+  h.setUsage(72.4);
   const result = await h.emit("context", { messages });
   assert.equal(result.messages.length, 2);
   const note = result.messages.at(-1);
   assert.equal(note.role, "custom");
   assert.equal(note.display, false);
-  assert.match(note.content, /updating the handoff/);
+  assert.equal(note.content, "[pi-notebook] Context 72% used.");
   assert.equal(messages.length, 1);
 });
 
-test("context bands are skipped without usage or with nudges off", async () => {
+test("the usage line is skipped without usage or with nudges off", async () => {
   const h = harness();
   const messages = [{ role: "user", content: "hi" }];
   h.setUsage(undefined);
@@ -110,16 +112,43 @@ test("context bands are skipped without usage or with nudges off", async () => {
   assert.equal(await h.emit("context", { messages }), undefined);
 });
 
-test("the compaction band mentions context_compact only when it is offered", async () => {
+const midRun = { toolResults: [{}] };
+
+test("a band suggestion is sent once per band until compaction", async () => {
   const h = harness();
-  const messages = [{ role: "user", content: "hi" }];
+  h.setUsage(72);
+  const first = await h.emit("turn_end", midRun);
+  assert.match(first.entries[0].content, /updating the handoff/);
+  h.setUsage(75);
+  assert.equal(await h.emit("turn_end", midRun), undefined);
+  h.session.onCompact();
+  h.setUsage(72);
+  assert.match((await h.emit("turn_end", midRun)).entries[0].content, /updating the handoff/);
+});
+
+test("jumping past several bands sends only the highest", async () => {
+  const h = harness();
   h.setUsage(90);
-  h.session.cfg.handoffCompaction = false;
-  let result = await h.emit("context", { messages });
-  assert.doesNotMatch(result.messages.at(-1).content, /context_compact/);
-  h.session.cfg.handoffCompaction = true;
-  result = await h.emit("context", { messages });
-  assert.match(result.messages.at(-1).content, /context_compact/);
+  const result = await h.emit("turn_end", midRun);
+  assert.match(result.entries[0].content, /Compaction is near/);
+  assert.doesNotMatch(result.entries[0].content, /durable knowledge/);
+});
+
+test("a band crossed on the final turn waits for the next prompt", async () => {
+  const h = harness();
+  h.setUsage(55);
+  assert.equal(await h.emit("turn_end", { toolResults: [] }), undefined);
+  assert.match(h.session.pendingNudge!, /durable knowledge/);
+});
+
+test("the compaction band mentions context_compact only when it is offered", async () => {
+  const off = harness();
+  off.session.cfg.handoffCompaction = false;
+  off.setUsage(90);
+  assert.doesNotMatch((await off.emit("turn_end", midRun)).entries[0].content, /context_compact/);
+  const on = harness();
+  on.setUsage(90);
+  assert.match((await on.emit("turn_end", midRun)).entries[0].content, /context_compact/);
 });
 
 test("a scheduled compaction runs when the agent settles, then resumes the work", async () => {

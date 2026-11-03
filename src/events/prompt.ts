@@ -7,7 +7,6 @@ import type { Session } from "../session.ts";
 import {
   looksLikePreference,
   looksLikeResume,
-  MILESTONE_NUDGE,
   PREFERENCE_NUDGE,
 } from "../signals.ts";
 import { diagnosticText, readHandoff, recall, ref, refreshIndex, revision } from "../store.ts";
@@ -18,14 +17,14 @@ export function promptNotes(
   { scope, global }: Located,
   cwd: string,
   prompt: string,
-  queued = false,
+  queued?: string,
   loaded?: ReturnType<typeof loadNotebook>,
 ): string[] {
   const { cfg } = session;
   const notes: string[] = [];
   if (cfg.nudgeModel && looksLikePreference(prompt))
     notes.push(PREFERENCE_NUDGE);
-  if (cfg.nudgeModel && queued) notes.push(MILESTONE_NUDGE);
+  if (cfg.nudgeModel && queued) notes.push(queued);
 
   const resume =
     scope && !session.handoffShown && looksLikeResume(prompt)
@@ -95,7 +94,7 @@ export function registerPromptEvents({ pi, session }: Runtime): void {
     const suppress = session.suppressNudgeOnce;
     session.suppressNudgeOnce = false;
     const queued = session.pendingNudge;
-    session.pendingNudge = false;
+    session.pendingNudge = undefined;
     if (suppress || event.messageType !== "user") return;
 
     const notes = promptNotes(session, located, ctx.cwd, event.prompt, queued, loaded);
