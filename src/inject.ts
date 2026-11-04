@@ -75,8 +75,10 @@ export function buildSection(input: InjectInput): string {
     for (const rule of input.snapshot?.conventions ?? readManaged(scope.agentsFile)) push(`Project rule: ${rule}`);
   const projectEntries = input.snapshot?.projectEntries ?? (scope ? listAll(scope) : []);
   const globalEntries = input.snapshot?.globalEntries ?? listAll(global);
-  const entries = [...projectEntries, ...globalEntries.slice(0, input.globalLimit)]
-    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  const newestFirst = (left: Entry, right: Entry) =>
+    right.date.localeCompare(left.date) || right.id - left.id;
+  const entries = [...projectEntries, ...[...globalEntries].sort(newestFirst).slice(0, input.globalLimit)]
+    .sort(newestFirst);
   let shown = 0;
   for (const e of entries) {
     const tags = e.tags.length ? ` ${e.tags.map((t) => `#${t}`).join(" ")}` : "";

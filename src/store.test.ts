@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { after, test } from "node:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -70,6 +72,44 @@ test("deletion removes files and refs permanently without reusing IDs", () => {
   assert.equal(saveEntry(s, "New", "New content.").id, 2);
   assert.throws(() => updateEntry(s, e.id, { title: "No" }), /not found/);
   assert.throws(() => updateEntry(s, 99, {}), /not found/);
+});
+
+test("failed atomic memory replacement preserves content and cleans temporary files", (t) => {
+  const s = scope();
+  const entry = saveEntry(s, "Original", "Keep this content.");
+  const original = readFileSync(entry.path, "utf8");
+  t.mock.method(fs, "renameSync", () => { throw new Error("Replacement failed"); });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => updateEntry(s, entry.id, { body: "Replacement" }), /Replacement failed/);
+    assert.equal(readFileSync(entry.path, "utf8"), original);
+    assert.equal(readdirSync(join(s.dir, "memories")).filter((name) => name.endsWith(".tmp")).length, 0);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+test("memory writes reuse and update a loaded collection without rescanning", (t) => {
+  const s = scope();
+  saveEntry(s, "Original", "Original knowledge.");
+  const collection = loadMemories(s);
+  const entries = collection.entries;
+  t.mock.method(fs, "readdirSync", () => { throw new Error("Unexpected rescan"); });
+  syncBuiltinESMExports();
+  try {
+    const added = saveEntry(s, "Added", "New knowledge.", {}, undefined, collection);
+    assert.equal(added.id, 2);
+    assert.equal(collection.maxId, 2);
+    updateEntry(s, 1, { body: "Updated knowledge." }, undefined, collection);
+    assert.equal(collection.entries, entries);
+    assert.equal(getEntry(s, 1, collection)?.body, "Updated knowledge.");
+    assert.equal(searchEntries([s], "added", 3, { entries }).length, 1);
+    assert.match(readFileSync(join(s.dir, "README.md"), "utf8"), /Updated knowledge/);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });
 
 test("deletion of converted memories reserves IDs and ignores old archive collections", () => {

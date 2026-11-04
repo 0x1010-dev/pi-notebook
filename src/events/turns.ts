@@ -15,7 +15,7 @@ export function registerTurnEvents({
     const { cfg } = session;
     if (!cfg.nudgeModel) return;
     const notes: string[] = [];
-    if (band >= 0) {
+    if (band !== undefined) {
       const handoff = !!locate(ctx.cwd).scope;
       notes.push(bandText(percent, band, { handoff, compactTool: cfg.handoffCompaction && handoff }));
     }

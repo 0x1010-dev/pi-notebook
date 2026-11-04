@@ -17,7 +17,8 @@ export function registerContextCompact(rt: Runtime): void {
       const percent = ctx.getContextUsage()?.percent;
       if (percent == null)
         throw new Error("Context usage is unknown until the next response, usually because compaction just ran. Compaction is not needed; continue the work.");
-      if (percent < (rt.session.cfg.contextBands[0] ?? 0))
+      const bands = rt.session.cfg.contextBands;
+      if (percent < (bands === false ? 0 : bands.save))
         throw new Error(`Context window is only ${Math.round(percent)}% full. Compaction is not needed; continue the work.`);
       if (!rt.session.handoffFresh())
         throw new Error("Update the handoff with handoff_update first, then call context_compact.");

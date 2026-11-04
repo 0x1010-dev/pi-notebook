@@ -106,7 +106,7 @@ export function diagnosticText(diagnostics: MemoryDiagnostic[]): string {
 }
 
 function writeEntry(e: Entry): void {
-  writeFile(e.path, renderFrontmatter({
+  atomicWrite(e.path, renderFrontmatter({
     updated: e.date,
     tags: e.tags.length ? e.tags : undefined,
     files: e.files?.length ? e.files : undefined,
@@ -165,19 +165,18 @@ export function loadMemories(scope: Scope): MemoryCollection {
   return { entries: entries.sort((a, b) => a.id - b.id), diagnostics, maxId };
 }
 
-function reserveId(scope: Scope, allocate = true): number {
+function reserveId(scope: Scope, allocate = true, collection = loadMemories(scope)): number {
   const path = join(scope.dir, ".next-id");
   const next = existsSync(path) ? Number(readFileSync(path, "utf8").trim()) : 1;
   if (!Number.isSafeInteger(next) || next < 1)
     throw new Error(`Invalid memory ID counter: ${path}`);
-  const id = Math.max(next, loadMemories(scope).maxId + 1);
+  const id = Math.max(next, collection.maxId + 1);
   if (!Number.isSafeInteger(id + 1)) throw new Error("Memory ID counter exhausted.");
   writeFile(path, `${allocate ? id + 1 : id}\n`);
   return id;
 }
 
-export function getEntry(scope: Scope, id: number): Entry | undefined {
-  const loaded = loadMemories(scope);
+export function getEntry(scope: Scope, id: number, loaded = loadMemories(scope)): Entry | undefined {
   const invalid = loaded.diagnostics.filter((d) => Number(/^(\d+)/.exec(d.path.split("/").at(-1) ?? "")?.[1]) === id);
   if (invalid.length) throw new Error(diagnosticText(invalid));
   return loaded.entries.find((e) => e.id === id);
@@ -191,9 +190,10 @@ export interface MemoryMeta {
 
 export function saveEntry(
   scope: Scope, title: string, body: string, meta: MemoryMeta = {}, now = new Date(),
+  collection = loadMemories(scope),
 ): Entry {
   if (!title.trim() || !body.trim()) throw new Error("A memory needs a title and content.");
-  const id = reserveId(scope);
+  const id = reserveId(scope, true, collection);
   const cleanTitle = oneLine(title);
   const entry: Entry = {
     scope: scope.kind, id, title: cleanTitle, body: body.trim(),
@@ -202,15 +202,18 @@ export function saveEntry(
     path: join(scope.dir, "memories", `${String(id).padStart(4, "0")}-${slugify(cleanTitle)}.md`),
   };
   writeEntry(entry);
-  refreshIndex(scope);
+  collection.entries.push(entry);
+  collection.maxId = id;
+  refreshIndex(scope, collection);
   return entry;
 }
 
 export function updateEntry(
   scope: Scope, id: number,
   patch: MemoryMeta & { title?: string; body?: string }, now = new Date(),
+  collection = loadMemories(scope),
 ): Entry {
-  const entry = getEntry(scope, id);
+  const entry = getEntry(scope, id, collection);
   if (!entry) throw new Error(`M${id} not found.`);
   if (patch.title !== undefined && !patch.title.trim() ||
       patch.body !== undefined && !patch.body.trim())
@@ -225,7 +228,8 @@ export function updateEntry(
     date: now.toISOString(),
   };
   writeEntry(updated);
-  refreshIndex(scope);
+  collection.entries.splice(collection.entries.indexOf(entry), 1, updated);
+  refreshIndex(scope, collection);
   return updated;
 }
 
@@ -427,7 +431,7 @@ export function handoffPath(scope: Scope): string {
   return join(scope.dir, "handoff.md");
 }
 
-export function readHandoff(scope: Scope): Handoff | undefined {
+function parseHandoff(scope: Scope): Handoff | undefined {
   if (!existsSync(handoffPath(scope))) return undefined;
   const { meta, body } = parseFrontmatter(readFileSync(handoffPath(scope), "utf8"));
   const h: Handoff = {
@@ -443,6 +447,19 @@ export function readHandoff(scope: Scope): Handoff | undefined {
     else if (key && key !== "updated") h[key] = content;
   }
   return h;
+}
+
+export function loadHandoff(scope: Scope): { handoff?: Handoff; diagnostics: MemoryDiagnostic[] } {
+  try {
+    return { handoff: parseHandoff(scope), diagnostics: [] };
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+    return { diagnostics: [{ path: handoffPath(scope), reason: error.message }] };
+  }
+}
+
+export function readHandoff(scope: Scope): Handoff | undefined {
+  return loadHandoff(scope).handoff;
 }
 
 export function writeHandoff(scope: Scope, h: Handoff): void {

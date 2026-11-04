@@ -2,6 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { agentDir, type StorageMode } from "./paths.ts";
 
+export interface ContextBands {
+  save: number;
+  handoff: number;
+  compact: number;
+}
+
 export interface NotebookConfig {
   /** Default storage offered when initializing a project. */
   storage: StorageMode;
@@ -11,8 +17,8 @@ export interface NotebookConfig {
   globalIndexLimit: number;
   /** Minimum turns between nudges. */
   nudgeCooldownTurns: number;
-  /** Context usage percents (ascending) for: save reminder, handoff reminder, compaction reminder. [] disables. */
-  contextBands: number[];
+  /** Context usage percents with save < handoff < compact. false disables reminders. */
+  contextBands: ContextBands | false;
   /** Send short hidden nudges to the model when signals fire. */
   nudgeModel: boolean;
   /** Block direct model file-tool writes to notebook files (not a shell security boundary). */
@@ -36,7 +42,7 @@ export const DEFAULT_CONFIG: NotebookConfig = {
   injectBudgetTokens: 1500,
   globalIndexLimit: 20,
   nudgeCooldownTurns: 16,
-  contextBands: [40, 55, 70],
+  contextBands: { save: 40, handoff: 55, compact: 70 },
   nudgeModel: true,
   guard: true,
   refreshSection: "session",
@@ -67,12 +73,14 @@ export function loadConfig(): NotebookConfig {
     ] as const) {
       if (typeof raw[key] === "number" && raw[key] >= 1) cfg[key] = Math.floor(raw[key]);
     }
-    if (Array.isArray(raw.contextBands)) {
+    if (raw.contextBands === false) {
+      cfg.contextBands = false;
+    } else if (raw.contextBands && typeof raw.contextBands === "object" && !Array.isArray(raw.contextBands)) {
       const bands = raw.contextBands;
-      const valid = bands.length <= 3 &&
-        bands.every((b: unknown) => typeof b === "number" && Number.isFinite(b) && b > 0 && b <= 100) &&
-        bands.every((b: number, i: number) => i === 0 || b > bands[i - 1]);
-      if (valid) cfg.contextBands = bands;
+      const valid = [bands.save, bands.handoff, bands.compact].every(
+        (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 100,
+      ) && bands.save < bands.handoff && bands.handoff < bands.compact;
+      if (valid) cfg.contextBands = { save: bands.save, handoff: bands.handoff, compact: bands.compact };
     }
     if (typeof raw.nudgeModel === "boolean") cfg.nudgeModel = raw.nudgeModel;
     if (typeof raw.guard === "boolean") cfg.guard = raw.guard;

@@ -88,6 +88,32 @@ test("injected indexes respect the approximate character budget even for oversiz
   }
 });
 
+test("global index limits select the most recently updated memories", () => {
+  const { located } = fixture();
+  const older = saveEntry(located.global, "Older", "Old knowledge.", {}, new Date("2020-01-01"));
+  const newer = saveEntry(located.global, "Newer", "New knowledge.", {}, new Date("2026-01-01"));
+  const input = { ...located, budgetTokens: 1500, globalLimit: 1 };
+  assert.match(buildSection(input), /~M2 Newer/);
+  assert.doesNotMatch(buildSection(input), /~M1 Older/);
+  updateEntry(located.global, older.id, { title: "Updated" }, new Date("2026-11-01"));
+  assert.match(buildSection(input), /~M1 Updated/);
+  assert.doesNotMatch(buildSection(input), new RegExp(`${ref(newer)} Newer`));
+});
+
+test("malformed handoffs are diagnosed without blocking valid memories", () => {
+  const { located, session } = fixture();
+  saveEntry(located.scope, "Valid memory", "Useful knowledge.");
+  const path = join(located.scope.dir, "handoff.md");
+  writeFileSync(path, "---\nupdated: [broken\n---\n# Current handoff\n");
+  const loaded = loadNotebook(located);
+  assert.equal(loaded.handoff, undefined);
+  assert.equal(readHandoff(located.scope), undefined);
+  assert.deepEqual(loaded.diagnostics.map((diagnostic) => diagnostic.path), [path]);
+  assert.equal(loaded.projectEntries.length, 1);
+  assert.match(buildSnapshot(located, session.cfg, loaded).section, /Valid memory/);
+  assert.match(buildSnapshot(located, session.cfg, loaded).section, /Notebook warning/);
+});
+
 test("injection can reuse a complete view snapshot without reading notebook files again", () => {
   const { located } = fixture();
   saveEntry(located.scope, "Snapshot memory", "Use the loaded notebook snapshot.");

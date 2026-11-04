@@ -4,17 +4,18 @@ import type { NotebookConfig } from "./config.ts";
 import { buildSection } from "./inject.ts";
 import type { Located } from "./runtime.ts";
 import type { ContextFile, Snapshot } from "./session.ts";
-import { loadMemories, readHandoff, readManaged, revision } from "./store.ts";
+import { loadHandoff, loadMemories, readManaged, revision } from "./store.ts";
 
 export function loadNotebook({ scope, global }: Located) {
   const local = scope ? loadMemories(scope) : undefined;
   const everywhere = loadMemories(global);
+  const handoff = scope ? loadHandoff(scope) : undefined;
   return {
     local, everywhere,
     projectEntries: local?.entries ?? [],
     globalEntries: everywhere.entries,
-    diagnostics: [...(local?.diagnostics ?? []), ...everywhere.diagnostics],
-    handoff: scope ? readHandoff(scope) : undefined,
+    diagnostics: [...(local?.diagnostics ?? []), ...everywhere.diagnostics, ...(handoff?.diagnostics ?? [])],
+    handoff: handoff?.handoff,
     conventions: scope ? readManaged(scope.agentsFile) : [],
   };
 }

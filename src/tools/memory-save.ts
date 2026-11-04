@@ -3,6 +3,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { Type } from "typebox";
 import { CONFIRM_PREVIEW_CHARS } from "../constants.ts";
 import { clip } from "../format.ts";
+import { loadNotebook } from "../context-files.ts";
 import { headCommit } from "../git.ts";
 import { resolveProjectScope } from "../flows/scope.ts";
 import { locate, type Runtime } from "../runtime.ts";
@@ -117,14 +118,16 @@ export function registerMemorySave(rt: Runtime): void {
       if (globalTarget && p.files?.length) throw new Error("Related files are project-relative; omit files for global memories.");
       const files = p.files && project ? normalizeMemoryFiles(p.files, project.root) : undefined;
       const commit = !globalTarget && project ? headCommit(project.root) : undefined;
+      const loaded = loadNotebook({ project, scope: globalTarget ? existing : scope, global });
+      const collection = globalTarget ? loaded.everywhere : loaded.local!;
       const entry = previous
         ? updateEntry(scope, previous.id, { title, body, tags: p.tags, files,
-            commit: body !== undefined || files !== undefined ? commit : previous.commit })
+            commit: body !== undefined || files !== undefined ? commit : previous.commit }, undefined, collection)
         : saveEntry(scope, title ?? original!.title, body ?? original!.body,
-            { tags: p.tags ?? original?.tags, files, commit });
-      rt.markSaved(ctx);
+            { tags: p.tags ?? original?.tags, files, commit }, undefined, collection);
+      rt.markSaved(ctx, loaded);
       const related = searchEntries([scope], [entry.title, ...entry.tags].join(" "), 3,
-        { exclude: (e) => e.id === entry.id });
+        { exclude: (e) => e.id === entry.id, entries: collection.entries });
       const advice = related.length
         ? `\nRelated memories (check only if useful): ${related.map((h) => `${ref(h.entry)} ${h.entry.title}`).join("; ")}.`
         : "";

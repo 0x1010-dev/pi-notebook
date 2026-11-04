@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { after, test } from "node:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Assert } from "typebox/value";
-import { locate, type Runtime } from "./runtime.ts";
+import { locate, statusInfo, type Runtime } from "./runtime.ts";
+import type { loadNotebook } from "./context-files.ts";
 import { Session } from "./session.ts";
 import { getEntry, initScope, listAll, readHandoff, readManaged } from "./store.ts";
 import { projectScope } from "./paths.ts";
@@ -47,9 +50,10 @@ function harness() {
   });
   const session = new Session();
   session.reset();
+  let savedSnapshot: ReturnType<typeof loadNotebook> | undefined;
   const rt: Runtime = {
     pi, session, refreshStatus() {}, sendOwnPrompt() {},
-    markSaved() { session.markSaved(); },
+    markSaved(_ctx, loaded) { savedSnapshot = loaded; session.markSaved(); },
   };
   let confirms = 0;
   let accepted = true;
@@ -79,6 +83,7 @@ function harness() {
   registerContextCompact(rt);
   return {
     session, ctx,
+    get savedSnapshot() { return savedSnapshot; },
     get confirms() { return confirms; },
     decline() { accepted = false; },
     projectOnly() { projectOnly = true; },
@@ -130,6 +135,25 @@ test("context_compact requires a recent handoff from this session", async () => 
   assert.equal(h.session.compactPending, false);
 });
 
+test("memory_save shares its updated collection with status and related search", async (t) => {
+  const h = harness();
+  const scope = locate(h.ctx.cwd).scope!;
+  const scan = t.mock.method(fs, "readdirSync");
+  syncBuiltinESMExports();
+  try {
+    await h.call("memory_save", { title: "Snapshot", content: "Reuse loaded entries." });
+    const loaded = h.savedSnapshot;
+    assert.ok(loaded);
+    assert.equal(loaded.projectEntries.length, 1);
+    assert.equal(loaded.projectEntries, loaded.local?.entries);
+    assert.equal(statusInfo(locate(h.ctx.cwd), loaded).projectEntries[0].title, "Snapshot");
+    assert.equal(scan.mock.calls.filter((call) => call.arguments[0] === join(scope.dir, "memories")).length, 1);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
 test("context_compact refuses when compaction is not needed", async () => {
   const h = harness();
   await h.call("handoff_update", { goal: "Migrate", status: "Half done", next_steps: ["Finish"] });
@@ -155,6 +179,21 @@ test("search reports malformed files while valid memories remain usable", async 
   await assert.rejects(h.call("memory_search", { query: "M42" }), /files need repair/);
   const saved = await h.call("memory_save", { title: "Next", content: "New knowledge." });
   assert.match(JSON.stringify(saved.content), /Saved M43/);
+});
+
+test("search diagnoses malformed handoffs while valid memories remain usable", async () => {
+  const h = harness();
+  await h.call("memory_save", { title: "SQLite choice", content: "Use SQLite." });
+  const scope = locate(h.ctx.cwd).scope!;
+  writeFileSync(join(scope.dir, "handoff.md"), "---\nupdated: [broken\n---\n# Current handoff\n");
+  for (const query of ["*", "sqlite", "M1", "handoff"]) {
+    const result = await h.call("memory_search", { query });
+    assert.match(JSON.stringify(result.content), /files need repair/);
+    assert.match(JSON.stringify(result.content), /handoff.md/);
+  }
+  assert.match(JSON.stringify((await h.call("memory_search", { query: "M1" })).content), /Use SQLite/);
+  await h.call("handoff_update", { goal: "Repair", status: "Ready", next_steps: [] });
+  assert.doesNotMatch(JSON.stringify((await h.call("memory_search", { query: "handoff" })).content), /files need repair/);
 });
 
 test("deletion requires approval and leaves memories untouched when declined", async () => {

@@ -65,6 +65,9 @@ Lists accept JSON notation, unquoted YAML arrays such as `[braille, ratatui]`,
 or indented YAML lists. Quote numeric-looking tags and commit hashes so they remain
 strings. Keep numeric filename IDs unique.
 
+Memory saves and updates replace files atomically, preserving existing content if
+replacement fails. This is not a substitute for independent backups.
+
 A malformed file is excluded without disabling valid memories. The status line,
 browser overview, generated index and search results report its path and reason;
 session notifications also warn when the diagnostics change. Repair the original
@@ -142,6 +145,10 @@ the previous file and copy its contents back to `handoff.md` manually before ano
 update replaces the recovery copy. This protects against accidental replacements,
 not disk loss; keep independent backups for that.
 
+Malformed handoff metadata is reported in notebook diagnostics and search results.
+Valid memories remain usable, and compaction falls back to Pi's normal summary
+until the handoff is repaired.
+
 ### `memory_delete`
 
 Pass `refs` and a reason. The user must confirm permanent removal of the files.
@@ -216,7 +223,7 @@ Under `notebook` in `~/.pi/agent/settings.json`:
   "injectBudgetTokens": 1500,
   "globalIndexLimit": 20,
   "nudgeCooldownTurns": 16,
-  "contextBands": [40, 55, 70],
+  "contextBands": { "save": 40, "handoff": 55, "compact": 70 },
   "nudgeModel": true,
   "guard": true,
   "refreshSection": "session",
@@ -228,8 +235,12 @@ Under `notebook` in `~/.pi/agent/settings.json`:
 }
 ```
 
-`autoRecall: 0` disables automatic memory recall; `contextBands: []` disables the
-context bands. Budgets use an approximate four characters per token,
+`autoRecall: 0` disables automatic memory recall; `contextBands: false` disables the
+context reminders. Thresholds must satisfy `0 < save < handoff < compact <= 100`.
+Replace old `[40, 55, 70]` arrays with the named object above, and `[]` with `false`;
+invalid values, including arrays, fall back to defaults. This does not disable
+`context_compact` or milestone nudges.
+Budgets use an approximate four characters per token,
 not the model's tokenizer. Status placement also supports `belowEditor` or `footer`.
 
 ## Breaking format change

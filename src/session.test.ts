@@ -50,7 +50,8 @@ test("tool retries do not manufacture a memory-writing obligation", () => {
 test("context at or above the handoff band suppresses the milestone nudge and clears the commit", () => {
   const s = session();
   s.recordToolResult("bash", "git commit -m x", false);
-  const high = { contextPercent: s.cfg.contextBands[1] };
+  assert.notEqual(s.cfg.contextBands, false);
+  const high = { contextPercent: s.cfg.contextBands === false ? 0 : s.cfg.contextBands.handoff };
   assert.equal(s.endTurn(high), false);
   // the band already asked for a handoff, so the commit obligation is cleared, not deferred
   assert.equal(s.endTurn(high), false);

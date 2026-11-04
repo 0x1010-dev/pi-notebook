@@ -8,7 +8,7 @@ import {
   getEntry,
   type Handoff,
   parseRef,
-  readHandoff,
+  loadHandoff,
   searchEntries,
   preview,
   refreshIndex,
@@ -85,11 +85,12 @@ export function registerMemorySearch(rt: Runtime): void {
         refreshIndex(s, loaded);
         return loaded;
       });
-      const diagnostics = diagnosticText(collections.flatMap((c) => c.diagnostics));
+      const loadedHandoff = scope ? loadHandoff(scope) : undefined;
+      const diagnostics = diagnosticText([
+        ...collections.flatMap((c) => c.diagnostics), ...(loadedHandoff?.diagnostics ?? []),
+      ]);
       const resultText = (body: string) => text([diagnostics, body].filter(Boolean).join("\n\n"));
-      const handoff: Handoff | undefined = scope
-        ? readHandoff(scope)
-        : undefined;
+      const handoff: Handoff | undefined = loadedHandoff?.handoff;
       const handoffRefs = handoff ? [`handoff ${handoff.goal}`] : [];
       const q = parseQuery(p.query);
 

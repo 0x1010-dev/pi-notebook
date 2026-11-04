@@ -32,12 +32,12 @@ export function locate(cwd: string): Located {
   };
 }
 
-export function statusInfo(located: Located): StatusInfo & ReturnType<typeof loadNotebook> {
+export function statusInfo(located: Located, loaded = loadNotebook(located)): StatusInfo & ReturnType<typeof loadNotebook> {
   const { project, scope } = located;
   return {
     project,
     scope,
-    ...loadNotebook(located),
+    ...loaded,
   };
 }
 
@@ -45,9 +45,9 @@ export function statusInfo(located: Located): StatusInfo & ReturnType<typeof loa
 export interface Runtime {
   pi: ExtensionAPI;
   session: Session;
-  refreshStatus(ctx: ExtensionContext): void;
+  refreshStatus(ctx: ExtensionContext, loaded?: ReturnType<typeof loadNotebook>): void;
   /** Record that something durable was saved and update the status line. */
-  markSaved(ctx: ExtensionContext): void;
+  markSaved(ctx: ExtensionContext, loaded?: ReturnType<typeof loadNotebook>): void;
   /** Send a prompt written by this extension without it triggering a nudge. */
   sendOwnPrompt(ctx: ExtensionContext, prompt: string): void;
 }
@@ -55,9 +55,9 @@ export interface Runtime {
 export function createRuntime(pi: ExtensionAPI): Runtime {
   const session = new Session();
 
-  const refreshStatus = (ctx: ExtensionContext): void => {
+  const refreshStatus = (ctx: ExtensionContext, loaded?: ReturnType<typeof loadNotebook>): void => {
     if (!ctx.hasUI) return;
-    const info = statusInfo(locate(ctx.cwd));
+    const info = statusInfo(locate(ctx.cwd), loaded);
     const diagnostics = diagnosticText(info.diagnostics ?? []);
     if (session.loadWarning !== diagnostics) {
       session.loadWarning = diagnostics;
@@ -87,9 +87,9 @@ export function createRuntime(pi: ExtensionAPI): Runtime {
     pi,
     session,
     refreshStatus,
-    markSaved(ctx) {
+    markSaved(ctx, loaded) {
       session.markSaved();
-      refreshStatus(ctx);
+      refreshStatus(ctx, loaded);
     },
     sendOwnPrompt(ctx, prompt) {
       session.suppressNudgeOnce = true;

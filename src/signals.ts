@@ -1,3 +1,5 @@
+import type { ContextBands } from "./config.ts";
+
 const PREFERENCE_RE =
   /\b(from now on|going forward|in the future|i prefer|i'd rather|i would rather|always use|never use|remember (?:that|to)|make sure (?:you|to) always)\b/i;
 
@@ -20,16 +22,16 @@ export const PREFERENCE_NUDGE =
 export const MILESTONE_NUDGE =
   "[pi-notebook] Work was committed. If there is worthwhile durable knowledge, save the conclusion or update its existing memory. Reconcile the handoff if unfinished work changed. Otherwise ignore this note. Do this at a natural stopping point, not in the middle of a step.";
 
-/** Highest band index whose threshold `percent` has reached, or -1 below all bands. */
-export function bandIndex(percent: number, bands: number[]): number {
-  let i = -1;
-  for (let b = 0; b < bands.length; b++) if (percent >= bands[b]) i = b;
-  return i;
-}
+export type ContextBand = keyof ContextBands;
 
-export const SAVE_BAND = 0;
-export const HANDOFF_BAND = 1;
-export const COMPACT_BAND = 2;
+/** Highest band whose threshold `percent` has reached. */
+export function contextBand(percent: number, bands: ContextBands | false): ContextBand | undefined {
+  if (bands === false) return undefined;
+  if (percent >= bands.compact) return "compact";
+  if (percent >= bands.handoff) return "handoff";
+  if (percent >= bands.save) return "save";
+  return undefined;
+}
 
 export function usageText(percent: number): string {
   return `[pi-notebook] Context window ${Math.round(percent)}% full.`;
@@ -42,14 +44,14 @@ export function resumeText(percent: number | undefined): string {
 
 export function bandText(
   percent: number,
-  band: number,
+  band: ContextBand,
   opts: { handoff: boolean; compactTool: boolean },
 ): string {
   const usage = usageText(percent);
-  const b = opts.handoff ? band : SAVE_BAND;
-  if (b === SAVE_BAND)
+  const kind = opts.handoff ? band : "save";
+  if (kind === "save")
     return `${usage} Consider saving any durable knowledge worth keeping.`;
-  if (b === HANDOFF_BAND)
+  if (kind === "handoff")
     return `${usage} Consider updating the handoff if progress has changed.`;
   return opts.compactTool
     ? `${usage} Compaction is near. At the next clean stopping point, update the handoff and call context_compact.`

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -49,7 +49,7 @@ function harness({ handoff = true, nextSteps = ["Finish"] } = {}) {
     compact: (opts: CompactOptions) => { compactions.push(opts); },
   } as unknown as ExtensionContext;
   return {
-    session, sent, compactions,
+    session, sent, compactions, scope,
     setUsage(percent: number | null | undefined) { usage = percent === undefined ? undefined : { percent }; },
     emit: (name: string, event: object) => handlers.get(name)!(event, ctx),
   };
@@ -76,6 +76,13 @@ test("session_before_compact uses a fresh handoff as the summary", async () => {
   assert.equal(result.compaction.firstKeptEntryId, "e42");
   assert.equal(result.compaction.tokensBefore, 150_000);
   assert.equal(h.session.handoffCompacted, true);
+});
+
+test("session_before_compact falls back to pi's summary for malformed handoffs", async () => {
+  const h = harness();
+  writeFileSync(join(h.scope.dir, "handoff.md"), "---\nupdated: [broken\n---\n# Current handoff\n");
+  assert.equal(await h.emit("session_before_compact", beforeCompact), undefined);
+  assert.equal(h.session.handoffCompacted, false);
 });
 
 test("a stale handoff is still used, with a warning", async () => {
@@ -113,6 +120,30 @@ test("the usage line is skipped without usage or with nudges off", async () => {
 });
 
 const midRun = { toolResults: [{}] };
+
+test("named thresholds control reminders independently of defaults", async () => {
+  const h = harness();
+  h.session.cfg.contextBands = { save: 20, handoff: 30, compact: 40 };
+  h.setUsage(20);
+  assert.match((await h.emit("turn_end", midRun)).entries[0].content, /durable knowledge/);
+  h.setUsage(30);
+  assert.match((await h.emit("turn_end", midRun)).entries[0].content, /updating the handoff/);
+  assert.equal(await h.emit("context", { messages: [] }), undefined);
+  h.setUsage(40);
+  assert.match((await h.emit("turn_end", midRun)).entries[0].content, /Compaction is near/);
+  assert.match((await h.emit("context", { messages: [] })).messages[0].content, /40% full/);
+});
+
+test("false disables context reminders without disabling milestone nudges", async () => {
+  const h = harness();
+  h.session.cfg.contextBands = false;
+  h.setUsage(100);
+  assert.equal(await h.emit("context", { messages: [] }), undefined);
+  assert.equal(await h.emit("turn_end", midRun), undefined);
+  assert.equal(h.session.pendingNudge, undefined);
+  h.session.recordToolResult("bash", "git commit -m x", false);
+  assert.equal(h.session.endTurn({ contextPercent: 100 }), true);
+});
 
 test("a band suggestion is sent once per band until compaction", async () => {
   const h = harness();

@@ -1,5 +1,5 @@
 import { loadConfig } from "./config.ts";
-import { bandIndex, COMMIT_RE, HANDOFF_BAND } from "./signals.ts";
+import { contextBand, COMMIT_RE, type ContextBand } from "./signals.ts";
 
 export interface ContextFile {
   path: string;
@@ -102,11 +102,13 @@ export class Session {
     this.invalidate();
   }
 
-  /** Returns the band first reached since the last compaction, or -1. */
-  crossBand(percent: number): number {
-    const band = bandIndex(percent, this.cfg.contextBands);
-    if (band <= this.bandNoted) return -1;
-    this.bandNoted = band;
+  /** Returns the highest band newly reached since the last compaction. */
+  crossBand(percent: number): ContextBand | undefined {
+    const band = contextBand(percent, this.cfg.contextBands);
+    if (band === undefined || this.cfg.contextBands === false) return undefined;
+    const threshold = this.cfg.contextBands[band];
+    if (threshold <= this.bandNoted) return undefined;
+    this.bandNoted = threshold;
     return band;
   }
 
@@ -134,7 +136,7 @@ export class Session {
   endTurn(input: TurnInput): boolean {
     this.turn++;
     const { cfg } = this;
-    const handoffBand = cfg.contextBands[HANDOFF_BAND];
+    const handoffBand = cfg.contextBands === false ? undefined : cfg.contextBands.handoff;
     if (handoffBand !== undefined && input.contextPercent >= handoffBand) {
       this.committed = false;
       return false;
