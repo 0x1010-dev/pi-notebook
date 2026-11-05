@@ -11,7 +11,12 @@ export const MANAGED_WARNING =
 
 export type GuardVerdict =
   | { action: "block"; reason: string }
-  | { action: "warn"; reason: string };
+  | { action: "verify"; snapshot: ManagedWriteSnapshot };
+
+export interface ManagedWriteSnapshot {
+  file: string;
+  block: string | undefined;
+}
 
 const FILE_TOOLS = new Set(["edit", "write"]);
 const NOTEBOOK_SEGMENT = /(^|\/)\.pi\/(notebook|agent\/pi-notebook)(\/|$)/;
@@ -45,24 +50,14 @@ function managedBlock(file: string): string | undefined {
   return s >= 0 && e > s ? src.slice(s, e + MANAGED_END.length) : undefined;
 }
 
-function editTouchesBlock(edits: unknown, block: string): boolean {
-  if (!Array.isArray(edits)) return false;
-  return edits.some((e) => {
-    const old = typeof e?.oldText === "string" ? e.oldText : "";
-    return (
-      old.length > 0 &&
-      (block.includes(old) ||
-        old.includes(MANAGED_START) ||
-        old.includes(MANAGED_END))
-    );
-  });
+export function managedWriteChanged(snapshot: ManagedWriteSnapshot): boolean {
+  return managedBlock(snapshot.file) !== snapshot.block;
 }
 
 /** Keep model file writes on the tool path without restricting ordinary reading. */
 export function guardToolCall(g: GuardInput): GuardVerdict | undefined {
   const home = g.home ?? homedir();
   const block = { action: "block", reason: FILES_REASON } as const;
-  const warn = { action: "warn", reason: MANAGED_WARNING } as const;
 
   if (FILE_TOOLS.has(g.toolName) && typeof g.input.path === "string") {
     const target = resolve(g.cwd, expand(g.input.path, home));
@@ -70,19 +65,8 @@ export function guardToolCall(g: GuardInput): GuardVerdict | undefined {
       return block;
 
     const agents = g.agentsFiles.find((f) => resolve(f) === target);
-    const managed = agents ? managedBlock(agents) : undefined;
-    if (
-      managed &&
-      g.toolName === "edit" &&
-      editTouchesBlock(g.input.edits, managed)
-    )
-      return warn;
-    if (
-      managed &&
-      g.toolName === "write" &&
-      !String(g.input.content ?? "").includes(managed)
-    )
-      return warn;
+    if (agents)
+      return { action: "verify", snapshot: { file: target, block: managedBlock(target) } };
   }
 
   return undefined;

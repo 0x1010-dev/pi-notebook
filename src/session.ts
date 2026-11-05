@@ -1,4 +1,5 @@
 import { loadConfig } from "./config.ts";
+import type { ManagedWriteSnapshot } from "./guard.ts";
 import { contextBand, COMMIT_RE, type ContextBand } from "./signals.ts";
 
 export interface ContextFile {
@@ -28,8 +29,8 @@ export class Session {
   snapshot: Snapshot | undefined;
   snapshotFingerprint: string | undefined;
   loadWarning = "";
-  /** Guard warnings keyed by tool call id, appended to that call's result. */
-  readonly warnings = new Map<string, string>();
+  /** Managed sections before file writes, keyed by tool call id. */
+  readonly managedWrites = new Map<string, ManagedWriteSnapshot>();
   /** Turns elapsed in this session. */
   turn = 0;
   /** Turn when this session last saved the handoff. */
@@ -55,7 +56,7 @@ export class Session {
     this.handoffShown = false;
     this.pendingNudge = undefined;
     this.suppressNudgeOnce = false;
-    this.warnings.clear();
+    this.managedWrites.clear();
     this.loadWarning = "";
     this.committed = false;
     this.turn = 0;

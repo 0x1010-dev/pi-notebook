@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import type { CompactOptions, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createEditTool, type CompactOptions, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerCompactionEvents } from "./events/compaction.ts";
 import { registerContextEvents } from "./events/context.ts";
 import { registerTurnEvents } from "./events/turns.ts";
+import { registerToolEvents } from "./events/tools.ts";
+import { MANAGED_WARNING } from "./guard.ts";
 import { projectScope } from "./paths.ts";
 import type { Runtime } from "./runtime.ts";
 import { Session } from "./session.ts";
-import { initScope, writeHandoff } from "./store.ts";
+import { appendManaged, initScope, writeHandoff } from "./store.ts";
 
 const root = mkdtempSync(join(tmpdir(), "nb-events-"));
 after(() => rmSync(root, { recursive: true }));
@@ -19,7 +21,7 @@ let next = 0;
 
 type Handler = (event: any, ctx: ExtensionContext) => Promise<any>;
 
-function harness({ handoff = true, nextSteps = ["Finish"] } = {}) {
+function harness({ handoff = true, nextSteps = ["Finish"], hasUI = false } = {}) {
   const cwd = join(root, `project-${++next}`);
   mkdirSync(join(cwd, ".git"), { recursive: true });
   const scope = projectScope({ root: cwd, name: "test" }, "repo");
@@ -41,21 +43,80 @@ function harness({ handoff = true, nextSteps = ["Finish"] } = {}) {
   registerCompactionEvents(rt);
   registerContextEvents(rt);
   registerTurnEvents(rt);
+  registerToolEvents(rt);
   let usage: { percent: number | null } | undefined;
   const compactions: CompactOptions[] = [];
+  const notifications: { message: string; type: string }[] = [];
   const ctx = {
-    cwd, hasUI: false,
+    cwd, hasUI,
+    ui: { notify(message: string, type: string) { notifications.push({ message, type }); } },
     getContextUsage: () => usage && { tokens: null, contextWindow: 100, ...usage },
     compact: (opts: CompactOptions) => { compactions.push(opts); },
   } as unknown as ExtensionContext;
   return {
-    session, sent, compactions, scope,
+    session, sent, compactions, scope, notifications,
     setUsage(percent: number | null | undefined) { usage = percent === undefined ? undefined : { percent }; },
     emit: (name: string, event: object) => handlers.get(name)!(event, ctx),
   };
 }
 
 const beforeCompact = { preparation: { firstKeptEntryId: "e42", tokensBefore: 150_000 } };
+
+test("file-tool results warn only for actual managed section changes", async () => {
+  const h = harness({ hasUI: true });
+  const file = h.scope.agentsFile;
+  appendManaged(file, "## Preferences", "use pnpm");
+  const src = readFileSync(file, "utf8");
+  writeFileSync(file, `# Human notes\n- use pnpm\n\n${src}`);
+  const edit = createEditTool(h.scope.project!.root);
+  const call = async (oldText: string, newText: string) => {
+    const input = { path: file, edits: [{ oldText, newText }] };
+    assert.equal(await h.emit("tool_call", { toolName: "edit", toolCallId: "edit", input }), undefined);
+    const result = await edit.execute("edit", input);
+    const event = { toolName: "edit", toolCallId: "edit", input, isError: false, ...result };
+    const warning = await h.emit("tool_result", event);
+    assert.equal(h.session.managedWrites.size, 0);
+    if (warning) assert.deepEqual(warning.content, [...result.content, { type: "text", text: MANAGED_WARNING }]);
+    return warning;
+  };
+
+  // Matching text outside the block is not a managed section change.
+  assert.equal(await call("# Human notes\n- use pnpm", "# Human notes\n- use npm"), undefined);
+  // Pi accepts a fuzzy match with trailing whitespace absent from the file.
+  assert.ok(await call("- use pnpm  ", "- use yarn"));
+  assert.deepEqual(h.notifications, [{ message: MANAGED_WARNING, type: "warning" }]);
+});
+
+test("write results detect managed section creation and removal, but skip failed calls", async () => {
+  const h = harness();
+  const file = h.scope.agentsFile;
+  const input = { path: file, content: "# Human notes\n" };
+  const start = () => h.emit("tool_call", { toolName: "write", toolCallId: "write", input });
+  const finish = (isError = false) => h.emit("tool_result", {
+    toolName: "write", toolCallId: "write", input, isError,
+    content: [{ type: "text", text: "result" }],
+  });
+  writeFileSync(file, input.content);
+  await start();
+  appendManaged(file, "## Preferences", "use pnpm");
+  assert.ok(await finish());
+  await start();
+  const src = readFileSync(file, "utf8");
+  writeFileSync(file, `# More human notes\n${src}`);
+  assert.equal(await finish(), undefined);
+  await start();
+  assert.equal(await finish(true), undefined);
+  assert.equal(h.session.managedWrites.size, 0);
+  assert.equal(await finish(), undefined);
+  await start();
+  writeFileSync(file, input.content);
+  assert.ok(await finish());
+
+  h.session.cfg.guard = false;
+  await start();
+  appendManaged(file, "## Preferences", "use npm");
+  assert.equal(await finish(), undefined);
+});
 
 test("session_before_compact leaves pi's summary alone when disabled or without a handoff", async () => {
   const off = harness();

@@ -84,6 +84,10 @@ memory's own prose should be relative to that memory file.
 Normal reads, listings, grep and shell browsing are allowed. The model is instructed
 to use notebook tools for writes; the optional guard blocks direct `edit`/`write`
 file-tool calls to notebook paths. It does not inspect or sandbox shell commands.
+For direct `edit`/`write` calls to global or project `AGENTS.md`, it compares the
+pi-notebook section before and after a successful call and warns only when that
+section changed, including creation or removal. Edits to human-owned content
+outside the section do not trigger this warning.
 
 Projects are git roots. `/nb:init` creates a notebook, or the first project
 memory save offers to create one. `local` storage keeps the same layout under

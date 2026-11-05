@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { guardToolCall } from "../guard.ts";
+import { guardToolCall, managedWriteChanged, MANAGED_WARNING } from "../guard.ts";
 import { notebookHome } from "../paths.ts";
 import { locate, type Runtime } from "../runtime.ts";
 
@@ -19,27 +19,27 @@ export function registerToolEvents({ pi, session }: Runtime): void {
     });
     if (verdict?.action === "block")
       return { block: true, reason: verdict.reason };
-    if (verdict?.action === "warn")
-      session.warnings.set(event.toolCallId, verdict.reason);
+    if (verdict?.action === "verify")
+      session.managedWrites.set(event.toolCallId, verdict.snapshot);
   });
 
   pi.on("tool_result", async (event, ctx) => {
-    const warning = session.warnings.get(event.toolCallId);
-    session.warnings.delete(event.toolCallId);
+    const snapshot = session.managedWrites.get(event.toolCallId);
+    session.managedWrites.delete(event.toolCallId);
     session.recordToolResult(
       event.toolName,
       event.input.command,
       event.isError,
     );
 
-    if (warning && !event.isError) {
+    if (snapshot && !event.isError && managedWriteChanged(snapshot)) {
       if (ctx.hasUI)
         ctx.ui.notify(
-          warning,
+          MANAGED_WARNING,
           "warning",
         );
       return {
-        content: [...event.content, { type: "text", text: warning }],
+        content: [...event.content, { type: "text", text: MANAGED_WARNING }],
         structuredContent: event.structuredContent,
       };
     }
