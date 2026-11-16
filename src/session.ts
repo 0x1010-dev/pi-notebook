@@ -116,6 +116,8 @@ export class Session {
   /** This session saved the handoff at the current turn. */
   markHandoff(): void {
     this.handoffTurn = this.turn;
+    this.committed = false;
+    this.pendingNudge = undefined;
   }
 
   /** Whether this session's handoff was saved recently enough to trust as a compaction summary. */

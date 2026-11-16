@@ -79,6 +79,29 @@ test("resuming work supplies the handoff without suppressing relevant durable kn
   assert.match(notes, /canonical dot table/);
 });
 
+test("handoff updates keep the system prompt stable while resume notes use the latest handoff", () => {
+  const { located, session } = fixture();
+  const input = { ...located, budgetTokens: 1500, globalLimit: 20 };
+  writeHandoff(located.scope, {
+    goal: "First goal", status: "In progress", nextSteps: ["First step"],
+    blockers: [], notes: "", updated: "2026-11-02T12:00:00.000Z",
+  });
+  const initialFingerprint = notebookFingerprint(located);
+  const initialSection = buildSection(input);
+
+  writeHandoff(located.scope, {
+    goal: "Updated goal", status: "Ready", nextSteps: ["Updated step"],
+    blockers: [], notes: "", updated: "2026-11-03T12:00:00.000Z",
+  });
+
+  assert.equal(notebookFingerprint(located), initialFingerprint);
+  assert.equal(buildSection(input), initialSection);
+  assert.doesNotMatch(initialSection, /First goal|Updated goal|First step|Updated step/);
+  const notes = promptNotes(session, located, located.project.root, "Continue this work", undefined).join("\n");
+  assert.match(notes, /Updated goal/);
+  assert.match(notes, /Updated step/);
+});
+
 test("injected indexes respect the approximate character budget even for oversized fields", () => {
   const { located } = fixture();
   saveEntry(located.scope, "Long title ".repeat(300), "Useful content.");

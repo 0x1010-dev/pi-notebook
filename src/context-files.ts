@@ -53,7 +53,7 @@ export function notebookFingerprint(located: Located, loaded = loadNotebook(loca
   const memories = [...loaded.projectEntries, ...loaded.globalEntries]
     .map((e) => [e.path, e.date, revision(e)]);
   return createHash("sha1").update(JSON.stringify([
-    project?.root, memories, loaded.handoff, loaded.diagnostics,
+    project?.root, memories, loaded.diagnostics,
     readIfExists(global.agentsFile), scope && readIfExists(scope.agentsFile),
   ])).digest("hex");
 }

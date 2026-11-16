@@ -1,5 +1,5 @@
 import type { Project, Scope } from "./paths.ts";
-import { type Entry, type Handoff, type MemoryDiagnostic, listAll, readHandoff, readManaged, ref } from "./store.ts";
+import { type Entry, type Handoff, type MemoryDiagnostic, listAll, readManaged, ref } from "./store.ts";
 import { ago } from "./ui.ts";
 
 export interface InjectInput {
@@ -65,12 +65,8 @@ export function buildSection(input: InjectInput): string {
   if (input.snapshot?.diagnostics?.length)
     push(`Notebook warning: ${input.snapshot.diagnostics.length} files excluded due to load errors. The notebook is incomplete; memory_search "*" reports paths and reasons.`);
   if (project) push(`Project: ${project.name}${scope ? "" : " (no notebook; memory_save can create one)"}`);
-  const h = input.snapshot ? input.snapshot.handoff : scope && readHandoff(scope);
-  if (h) {
-    push(`Handoff (${stamp(h)}): ${h.goal}`);
-    if (h.nextSteps[0]) push(`Next: ${h.nextSteps[0]}`);
+  if (scope)
     push('Read the full current handoff with memory_search "handoff" when resuming.');
-  }
   if (scope?.mode === "local")
     for (const rule of input.snapshot?.conventions ?? readManaged(scope.agentsFile)) push(`Project rule: ${rule}`);
   const projectEntries = input.snapshot?.projectEntries ?? (scope ? listAll(scope) : []);

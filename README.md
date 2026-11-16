@@ -171,9 +171,11 @@ memory first, and point to full entries when truncated.
 
 Already delivered versions do not crowd out unseen matches. Updates and human
 edits become eligible again; compaction clears delivery suppression. The prompt
-snapshot stays stable until notebook content changes (or `refreshSection` is
-`turn`). Resume-like prompts receive the full handoff once per session or
-compaction cycle.
+snapshot stays stable until memory content or managed rules change (or
+`refreshSection` is `turn`); handoff updates do not invalidate its cache. The current
+handoff is available in the `handoff_update` result, through
+`memory_search "handoff"`, and on resume-like prompts (once per session or
+compaction cycle).
 
 Optional hidden nudges occur at commits and as context fills up, not after arbitrary
 tool failures or a quota of unsaved turns. They explicitly permit saving nothing.

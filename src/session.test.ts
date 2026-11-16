@@ -68,6 +68,17 @@ test("handoffFresh tracks turns since this session last saved the handoff", () =
   assert.equal(s.handoffFresh(), false);
 });
 
+test("saving a handoff clears pending nudges without invalidating the prompt snapshot", () => {
+  const s = session();
+  s.snapshot = { section: "stable", files: [] };
+  s.snapshotFingerprint = "fingerprint";
+  s.pendingNudge = "save knowledge";
+  s.markHandoff();
+  assert.equal(s.snapshot?.section, "stable");
+  assert.equal(s.snapshotFingerprint, "fingerprint");
+  assert.equal(s.pendingNudge, undefined);
+});
+
 test("onCompact shows the handoff once when it was the compaction summary, otherwise hides it", () => {
   const s = session();
   s.handoffCompacted = true;

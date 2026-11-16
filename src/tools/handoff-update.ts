@@ -34,7 +34,7 @@ export function registerHandoffUpdate(rt: Runtime): void {
       };
       writeHandoff(scope, saved);
       rt.session.markHandoff();
-      rt.markSaved(ctx);
+      rt.refreshStatus(ctx);
       return { content: text(`Handoff replaced:\n\n${formatHandoff(saved)}`), details: { goal: saved.goal } };
     },
     renderCall(args, theme) {
