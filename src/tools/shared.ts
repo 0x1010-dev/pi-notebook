@@ -8,7 +8,9 @@ export function splitListArgs(args: unknown, keys: string[]): never {
   const a = { ...(args as Record<string, unknown>) };
   for (const key of keys) {
     const v = a[key];
-    if (typeof v === "string") a[key] = v.split(/[\s,]+/).filter(Boolean);
+    if (typeof v === "string") {
+      a[key] = v.split(/[\s,]+/).filter(Boolean);
+    }
   }
   return a as never;
 }

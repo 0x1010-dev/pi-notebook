@@ -24,6 +24,8 @@ export function loadState(): PersistentState {
 
 export function saveState(state: PersistentState): void {
   const home = notebookHome();
-  if (!existsSync(home)) mkdirSync(home, { recursive: true });
+  if (!existsSync(home)) {
+    mkdirSync(home, { recursive: true });
+  }
   writeFileSync(statePath(), `${JSON.stringify(state, null, 2)}\n`);
 }

@@ -11,7 +11,7 @@ export interface ContextBands {
 export interface NotebookConfig {
   /** Default storage offered when initializing a project. */
   storage: StorageMode;
-  /** Upper bound for the injected notebook section. */
+  /** Upper bound for the injected memory-title index, excluding instructions and rules. */
   injectBudgetTokens: number;
   /** Most recent global entries listed in the injected index. */
   globalIndexLimit: number;
@@ -60,10 +60,13 @@ export function loadConfig(): NotebookConfig {
       readFileSync(join(agentDir(), "settings.json"), "utf8"),
     );
     const raw = settings?.notebook;
-    if (!raw || typeof raw !== "object") return { ...DEFAULT_CONFIG };
+    if (!raw || typeof raw !== "object") {
+      return { ...DEFAULT_CONFIG };
+    }
     const cfg = { ...DEFAULT_CONFIG };
-    if (raw.storage === "repo" || raw.storage === "local")
+    if (raw.storage === "repo" || raw.storage === "local") {
       cfg.storage = raw.storage;
+    }
     for (const key of [
       "injectBudgetTokens",
       "globalIndexLimit",
@@ -71,27 +74,56 @@ export function loadConfig(): NotebookConfig {
       "handoffStaleTurns",
       "maxCompactCycles",
     ] as const) {
-      if (typeof raw[key] === "number" && raw[key] >= 1) cfg[key] = Math.floor(raw[key]);
+      if (typeof raw[key] === "number" && raw[key] >= 1) {
+        cfg[key] = Math.floor(raw[key]);
+      }
     }
     if (raw.contextBands === false) {
       cfg.contextBands = false;
-    } else if (raw.contextBands && typeof raw.contextBands === "object" && !Array.isArray(raw.contextBands)) {
+    } else if (
+      raw.contextBands &&
+      typeof raw.contextBands === "object" &&
+      !Array.isArray(raw.contextBands)
+    ) {
       const bands = raw.contextBands;
-      const valid = [bands.save, bands.handoff, bands.compact].every(
-        (value: unknown) => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 100,
-      ) && bands.save < bands.handoff && bands.handoff < bands.compact;
-      if (valid) cfg.contextBands = { save: bands.save, handoff: bands.handoff, compact: bands.compact };
+      const valid =
+        [bands.save, bands.handoff, bands.compact].every(
+          (value: unknown) =>
+            typeof value === "number" &&
+            Number.isFinite(value) &&
+            value > 0 &&
+            value <= 100,
+        ) &&
+        bands.save < bands.handoff &&
+        bands.handoff < bands.compact;
+      if (valid) {
+        cfg.contextBands = {
+          save: bands.save,
+          handoff: bands.handoff,
+          compact: bands.compact,
+        };
+      }
     }
-    if (typeof raw.nudgeModel === "boolean") cfg.nudgeModel = raw.nudgeModel;
-    if (typeof raw.guard === "boolean") cfg.guard = raw.guard;
-    if (typeof raw.handoffCompaction === "boolean")
+    if (typeof raw.nudgeModel === "boolean") {
+      cfg.nudgeModel = raw.nudgeModel;
+    }
+    if (typeof raw.guard === "boolean") {
+      cfg.guard = raw.guard;
+    }
+    if (typeof raw.handoffCompaction === "boolean") {
       cfg.handoffCompaction = raw.handoffCompaction;
-    if (["footer", "belowEditor", "aboveEditor"].includes(raw.statusPlacement))
+    }
+    if (
+      ["footer", "belowEditor", "aboveEditor"].includes(raw.statusPlacement)
+    ) {
       cfg.statusPlacement = raw.statusPlacement;
-    if (raw.refreshSection === "session" || raw.refreshSection === "turn")
+    }
+    if (raw.refreshSection === "session" || raw.refreshSection === "turn") {
       cfg.refreshSection = raw.refreshSection;
-    if (typeof raw.autoRecall === "number" && raw.autoRecall >= 0)
+    }
+    if (typeof raw.autoRecall === "number" && raw.autoRecall >= 0) {
       cfg.autoRecall = Math.floor(raw.autoRecall);
+    }
     return cfg;
   } catch {
     return { ...DEFAULT_CONFIG };

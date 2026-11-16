@@ -36,8 +36,12 @@ export function ensureVisible(
   end: number,
   height: number,
 ): number {
-  if (start < offset) return start;
-  if (end >= offset + height) return Math.min(start, end - height + 1);
+  if (start < offset) {
+    return start;
+  }
+  if (end >= offset + height) {
+    return Math.min(start, end - height + 1);
+  }
   return offset;
 }
 
@@ -51,37 +55,49 @@ export interface StartupInput {
 
 /** Notice shown when a session starts in a project with a notebook. */
 export function startupSummary(input: StartupInput): string | undefined {
-  const { project, scope, handoff: h, entries, now = Date.now() } = input;
+  const { project, scope, handoff, entries, now = Date.now() } = input;
   const active = counts(entries);
-  if (!h?.goal && active === 0) return undefined;
+  if (!handoff?.goal && active === 0) {
+    return undefined;
+  }
 
   let age = "";
-  if (h?.updated) {
-    const a = ago(h.updated, now);
+  if (handoff?.updated) {
+    const ageText = ago(handoff.updated, now);
     age =
-      now - Date.parse(h.updated) > STALE_MS
-        ? ` · ⚠ handoff ${a} old`
-        : ` · handoff updated ${a === "0m" ? "just now" : `${a} ago`}`;
+      now - Date.parse(handoff.updated) > STALE_MS
+        ? ` · ⚠ handoff ${ageText} old`
+        : ` · handoff updated ${ageText === "0m" ? "just now" : `${ageText} ago`}`;
   }
   const row = (label: string, value: string) =>
     `  ${label.padEnd(8)} ${clip(value, 110)}`;
   const out = [`◆ pi-notebook · ${project.name} (${scope.mode})${age}`];
 
-  if (!h?.goal) {
+  if (!handoff?.goal) {
     out.push("  No handoff yet");
   } else {
-    out.push(row("Goal", h.goal));
-    if (h.status) out.push(row("Status", h.status));
-    if (h.nextSteps[0]) {
-      const more = h.nextSteps.length - 1;
-      out.push(row("Next", `› ${h.nextSteps[0]}${more ? ` (+${more} more)` : ""}`));
+    out.push(row("Goal", handoff.goal));
+    if (handoff.status) {
+      out.push(row("Status", handoff.status));
     }
-    h.blockers
+    if (handoff.nextSteps[0]) {
+      const more = handoff.nextSteps.length - 1;
+      out.push(
+        row(
+          "Next",
+          `› ${handoff.nextSteps[0]}${more ? ` (+${more} more)` : ""}`,
+        ),
+      );
+    }
+    handoff.blockers
       .slice(0, 2)
       .forEach((b, i) => out.push(row(i === 0 ? "Blocked" : "", `! ${b}`)));
-    if (h.blockers.length > 2)
-      out.push(row("", `(+${h.blockers.length - 2} more blockers)`));
-    if (h.notes) out.push(row("Notes", h.notes));
+    if (handoff.blockers.length > 2) {
+      out.push(row("", `(+${handoff.blockers.length - 2} more blockers)`));
+    }
+    if (handoff.notes) {
+      out.push(row("Notes", handoff.notes));
+    }
   }
   out.push(row("Notebook", `${active} active memories · /nb to browse`));
   return out.join("\n");
@@ -112,26 +128,28 @@ interface Body {
   anchor?: [number, number];
 }
 
-function rule(th: Theme, width: number, title: string, right = ""): string {
-  const left = `${th.fg("borderMuted", "───")} ${th.fg("accent", "◆")} ${th.fg("accent", th.bold(title))} `;
+function rule(theme: Theme, width: number, title: string, right = ""): string {
+  const left = `${theme.fg("borderMuted", "───")} ${theme.fg("accent", "◆")} ${theme.fg("accent", theme.bold(title))} `;
   const tail = right
-    ? ` ${th.fg("dim", right)} ${th.fg("borderMuted", "─")}`
+    ? ` ${theme.fg("dim", right)} ${theme.fg("borderMuted", "─")}`
     : "";
   const fill = Math.max(0, width - visibleWidth(left) - visibleWidth(tail));
   return truncateToWidth(
-    left + th.fg("borderMuted", "─".repeat(fill)) + tail,
+    left + theme.fg("borderMuted", "─".repeat(fill)) + tail,
     width,
   );
 }
 
-function heading(th: Theme, label: string, meta = ""): string {
-  return `  ${th.fg("text", th.bold(label))}${meta ? `  ${th.fg("dim", meta)}` : ""}`;
+function heading(theme: Theme, label: string, meta = ""): string {
+  return `  ${theme.fg("text", theme.bold(label))}${meta ? `  ${theme.fg("dim", meta)}` : ""}`;
 }
 
 /** Wrap `body` to the width, continuation lines aligned under its first character. */
 function hang(prefix: string, body: string, width: number): string[] {
   const pad = visibleWidth(prefix);
-  if (width - pad < 10) return [prefix + body];
+  if (width - pad < 10) {
+    return [prefix + body];
+  }
   return wrapTextWithAnsi(body, width - pad).map(
     (l, i) => (i ? " ".repeat(pad) : prefix) + l,
   );
@@ -154,7 +172,7 @@ export class NotebookView {
 
   constructor(
     private data: ViewData,
-    private th: Theme,
+    private theme: Theme,
     private tui: ViewTui,
     private onClose: () => void,
     checkStaleness?: ReturnType<typeof createStalenessChecker>,
@@ -164,9 +182,11 @@ export class NotebookView {
       projectEntries: [...data.projectEntries].sort(newestFirst),
       globalEntries: [...data.globalEntries].sort(newestFirst),
     };
-    this.checkStaleness = checkStaleness ?? (data.project
-      ? createStalenessChecker(data.project.root, this.abort.signal)
-      : undefined);
+    this.checkStaleness =
+      checkStaleness ??
+      (data.project
+        ? createStalenessChecker(data.project.root, this.abort.signal)
+        : undefined);
   }
 
   dispose(): void {
@@ -175,12 +195,13 @@ export class NotebookView {
 
   private tabs(): Tab[] {
     const tabs: Tab[] = [{ id: "overview", label: "Overview" }];
-    if (this.data.scope)
+    if (this.data.scope) {
       tabs.push({
         id: "memories",
         label: "Memories",
         entries: this.data.projectEntries,
       });
+    }
     tabs.push(
       { id: "global", label: "Global", entries: this.data.globalEntries },
       { id: "rules", label: "Rules" },
@@ -204,12 +225,14 @@ export class NotebookView {
     const isList = !!tab.entries;
     const items = tab.entries ?? [];
     const move = (by: number) => {
-      if (isList)
+      if (isList) {
         this.selected = Math.max(
           0,
           Math.min(this.selected + by, items.length - 1),
         );
-      else this.offset = Math.max(0, this.offset + by);
+      } else {
+        this.offset = Math.max(0, this.offset + by);
+      }
     };
     const page = isList ? 5 : this.bodyHeight() - 1;
 
@@ -217,23 +240,36 @@ export class NotebookView {
       this.dispose();
       return this.onClose();
     }
-    if (matchesKey(key, "left") || matchesKey(key, "shift+tab"))
+    if (matchesKey(key, "left") || matchesKey(key, "shift+tab")) {
       this.switchTab(-1);
-    else if (matchesKey(key, "right") || matchesKey(key, "tab"))
+    } else if (matchesKey(key, "right") || matchesKey(key, "tab")) {
       this.switchTab(1);
-    else if (matchesKey(key, "up")) move(-1);
-    else if (matchesKey(key, "down")) move(1);
-    else if (matchesKey(key, "pageUp")) move(-page);
-    else if (matchesKey(key, "pageDown")) move(page);
-    else if (matchesKey(key, "home")) move(-Infinity);
-    else if (matchesKey(key, "end")) move(Infinity);
-    else if (isList && (matchesKey(key, "enter") || matchesKey(key, "space"))) {
-      const e = items[this.selected];
-      if (e) {
-        if (!this.open.delete(e.path)) this.open.add(e.path);
-        this.rows.delete(e);
+    } else if (matchesKey(key, "up")) {
+      move(-1);
+    } else if (matchesKey(key, "down")) {
+      move(1);
+    } else if (matchesKey(key, "pageUp")) {
+      move(-page);
+    } else if (matchesKey(key, "pageDown")) {
+      move(page);
+    } else if (matchesKey(key, "home")) {
+      move(-Infinity);
+    } else if (matchesKey(key, "end")) {
+      move(Infinity);
+    } else if (
+      isList &&
+      (matchesKey(key, "enter") || matchesKey(key, "space"))
+    ) {
+      const entry = items[this.selected];
+      if (entry) {
+        if (!this.open.delete(entry.path)) {
+          this.open.add(entry.path);
+        }
+        this.rows.delete(entry);
       }
-    } else return;
+    } else {
+      return;
+    }
     this.tui.requestRender();
   }
 
@@ -246,7 +282,7 @@ export class NotebookView {
       this.rowWidth = width;
       this.rows.clear();
     }
-    const { th, data } = this;
+    const { theme, data } = this;
     const tabs = this.tabs();
     this.tab = Math.min(this.tab, tabs.length - 1);
     const tab = tabs[this.tab];
@@ -255,30 +291,38 @@ export class NotebookView {
       ? `${data.project.name}${data.scope ? ` · ${data.scope.mode}` : ""}`
       : "global";
     const bar = tabs
-      .map((t, i) => {
-        const n = t.entries
-          ? ` ${t.entries.length}`
-          : "";
-        return i === this.tab
-          ? th.fg("accent", th.bold(`[${t.label}${n}]`))
-          : th.fg("dim", ` ${t.label}${n} `);
+      .map((item, index) => {
+        const count = item.entries ? ` ${item.entries.length}` : "";
+        return index === this.tab
+          ? theme.fg("accent", theme.bold(`[${item.label}${count}]`))
+          : theme.fg("dim", ` ${item.label}${count} `);
       })
       .join(" ");
 
-    const body = tab.entries
-      ? this.entryBody(tab, width)
-      : tab.id === "rules"
-        ? this.rulesBody(width)
-        : this.overviewBody(width);
+    let body: Body;
+    if (tab.entries) {
+      body = this.entryBody(tab, width);
+    } else if (tab.id === "rules") {
+      body = this.rulesBody(width);
+    } else {
+      body = this.overviewBody(width);
+    }
 
     const height = this.bodyHeight();
-    if (body.anchor)
-      this.offset = ensureVisible(this.offset, body.anchor[0], body.anchor[1], height);
+    if (body.anchor) {
+      this.offset = ensureVisible(
+        this.offset,
+        body.anchor[0],
+        body.anchor[1],
+        height,
+      );
+    }
     this.offset = clampScroll(this.offset, body.lines.length, height);
     const shown = visibleWindow(body.lines, this.offset, height);
     for (const { entry, start, end } of body.entries ?? []) {
-      if (end >= this.offset && start < this.offset + height)
+      if (end >= this.offset && start < this.offset + height) {
         this.checkVisible(entry);
+      }
     }
     const pos =
       body.lines.length > height
@@ -290,191 +334,253 @@ export class NotebookView {
 
     return [
       "",
-      rule(th, width, "Notebook", where),
+      rule(theme, width, "Notebook", where),
       `  ${bar}`,
       "",
       ...shown,
       "",
-      `  ${th.fg("dim", pos + keys)}`,
+      `  ${theme.fg("dim", pos + keys)}`,
     ].map((l) => truncateToWidth(l, width));
   }
 
   private entryBody(tab: Tab, width: number): Body {
-    const { th } = this;
+    const { theme } = this;
     const items = tab.entries ?? [];
     if (items.length === 0) {
-      return { lines: [`    ${th.fg("dim", "none yet")}`] };
+      return { lines: [`    ${theme.fg("dim", "none yet")}`] };
     }
     this.selected = Math.min(this.selected, items.length - 1);
     const lines: string[] = [];
     const entries: NonNullable<Body["entries"]> = [];
     let anchor: [number, number] | undefined;
-    items.forEach((e, i) => {
+    items.forEach((entry, i) => {
       const start = lines.length;
-      let row = this.rows.get(e);
+      let row = this.rows.get(entry);
       if (!row) {
         row = hang(
-          `   ${th.fg("accent", ref(e).padEnd(5))} `,
-          `${th.fg("text", e.title)}  ${th.fg("dim", e.date)}`,
+          `   ${theme.fg("accent", ref(entry).padEnd(5))} `,
+          `${theme.fg("text", entry.title)}  ${theme.fg("dim", entry.date)}`,
           width,
         );
-        row.push(...hang("        ", th.fg("muted", entryPreview(e)), width));
-        row.push(...hang("        ", th.fg("dim", `Path: ${e.path}`), width));
-        for (const note of this.notes(e))
-          row.push(...hang("        ", th.fg("dim", note), width));
-        if (this.open.has(e.path)) row.push(...this.detail(e, width));
-        this.rows.set(e, row);
+        row.push(
+          ...hang("        ", theme.fg("muted", entryPreview(entry)), width),
+        );
+        row.push(
+          ...hang("        ", theme.fg("dim", `Path: ${entry.path}`), width),
+        );
+        for (const note of this.notes(entry)) {
+          row.push(...hang("        ", theme.fg("dim", note), width));
+        }
+        if (this.open.has(entry.path)) {
+          row.push(...this.detail(entry, width));
+        }
+        this.rows.set(entry, row);
       }
       lines.push(...row);
-      if (i === this.selected)
-        lines[start] = ` ${th.fg("accent", "▸")}${lines[start].slice(2)}`;
-      entries.push({ entry: e, start, end: lines.length - 1 });
-      if (i === this.selected) anchor = [start, lines.length - 1];
+      if (i === this.selected) {
+        lines[start] = ` ${theme.fg("accent", "▸")}${lines[start].slice(2)}`;
+      }
+      entries.push({ entry: entry, start, end: lines.length - 1 });
+      if (i === this.selected) {
+        anchor = [start, lines.length - 1];
+      }
     });
     return { lines, anchor, entries };
   }
 
-  private notes(e: Entry): string[] {
-    const lines = metadataLines(e);
-    if (e.commit && this.checkStaleness) {
-      const warning = this.warnings.has(e)
-        ? this.warnings.get(e)
+  private notes(entry: Entry): string[] {
+    const lines = metadataLines(entry);
+    if (entry.commit && this.checkStaleness) {
+      const warning = this.warnings.has(entry)
+        ? this.warnings.get(entry)
         : "Checking code baseline…";
-      if (warning) lines.push(warning);
+      if (warning) {
+        lines.push(warning);
+      }
     }
     return lines;
   }
 
-  private checkVisible(e: Entry): void {
+  private checkVisible(entry: Entry): void {
     const check = this.checkStaleness;
-    const commit = e.commit;
-    if (!check || !commit || this.warnings.has(e) || this.checking.has(e) || this.abort.signal.aborted)
+    const commit = entry.commit;
+    if (
+      !check ||
+      !commit ||
+      this.warnings.has(entry) ||
+      this.checking.has(entry) ||
+      this.abort.signal.aborted
+    ) {
       return;
-    this.checking.add(e);
+    }
+    this.checking.add(entry);
     // Start work after rendering, and only for entries that reached the viewport.
     queueMicrotask(async () => {
-      if (this.abort.signal.aborted) return;
-      const warning = await check(commit, e.files);
-      if (this.abort.signal.aborted) return;
-      this.warnings.set(e, warning);
-      this.checking.delete(e);
-      this.rows.delete(e);
+      if (this.abort.signal.aborted) {
+        return;
+      }
+      const warning = await check(commit, entry.files);
+      if (this.abort.signal.aborted) {
+        return;
+      }
+      this.warnings.set(entry, warning);
+      this.checking.delete(entry);
+      this.rows.delete(entry);
       this.tui.requestRender();
     });
   }
 
-  private detail(e: Entry, width: number): string[] {
-    const { th } = this;
+  private detail(entry: Entry, width: number): string[] {
+    const { theme } = this;
     const pad = "        ";
     const out: string[] = [];
-    for (const para of (e.body.trim() || "(no details)").split("\n"))
-      out.push(...(para.trim() ? hang(pad, th.fg("muted", para), width) : [""]));
+    for (const para of (entry.body.trim() || "(no details)").split("\n")) {
+      out.push(
+        ...(para.trim() ? hang(pad, theme.fg("muted", para), width) : [""]),
+      );
+    }
     out.push("");
     return out;
   }
 
   private rulesBody(width: number): Body {
-    const { th, data } = this;
+    const { theme, data } = this;
     const lines: string[] = [];
     const section = (label: string, rules: string[]) => {
-      lines.push(heading(th, label, `${rules.length}`));
-      if (rules.length === 0) lines.push(`    ${th.fg("dim", "none yet")}`);
-      for (const r of rules)
-        lines.push(...hang(`    ${th.fg("dim", "•")} `, th.fg("text", r), width));
+      lines.push(heading(theme, label, `${rules.length}`));
+      if (rules.length === 0) {
+        lines.push(`    ${theme.fg("dim", "none yet")}`);
+      }
+      for (const r of rules) {
+        lines.push(
+          ...hang(`    ${theme.fg("dim", "•")} `, theme.fg("text", r), width),
+        );
+      }
       lines.push("");
     };
-    if (data.scope) section("Conventions (this project)", data.conventions);
+    if (data.scope) {
+      section("Conventions (this project)", data.conventions);
+    }
     section("Preferences (everywhere)", data.preferences);
     return { lines };
   }
 
   private overviewBody(width: number): Body {
-    const { th, data } = this;
+    const { theme, data } = this;
     const lines: string[] = [];
     const entries: NonNullable<Body["entries"]> = [];
     const diagnostics = diagnosticText(data.diagnostics ?? []);
-    if (diagnostics)
-      lines.push(...hang("  ", th.fg("warning", diagnostics), width), "");
-    if (data.project && !data.scope)
+    if (diagnostics) {
+      lines.push(...hang("  ", theme.fg("warning", diagnostics), width), "");
+    }
+    if (data.project && !data.scope) {
       lines.push(
-        `  ${th.fg("dim", "No notebook for this project. Run")} ${th.fg("accent", "/nb:init")} ${th.fg("dim", "or save something.")}`,
+        `  ${theme.fg("dim", "No notebook for this project. Run")} ${theme.fg("accent", "/nb:init")} ${theme.fg("dim", "or save something.")}`,
         "",
       );
+    }
 
     if (data.scope) {
-      const h = data.handoff;
+      const handoff = data.handoff;
       lines.push(
-        heading(th, "Handoff", h?.updated ? `updated ${ago(h.updated)} ago` : ""),
+        heading(
+          theme,
+          "Handoff",
+          handoff?.updated ? `updated ${ago(handoff.updated)} ago` : "",
+        ),
       );
-      if (!h) {
-        lines.push(`    ${th.fg("dim", "none yet")}`);
+      if (!handoff) {
+        lines.push(`    ${theme.fg("dim", "none yet")}`);
       } else {
         const field = (label: string, value: string) =>
-          hang(`    ${th.fg("muted", label.padEnd(8))}`, th.fg("text", value), width);
-        if (h.goal) lines.push(...field("goal", h.goal));
-        if (h.status) lines.push(...field("status", h.status));
-        h.nextSteps.forEach((s, i) =>
+          hang(
+            `    ${theme.fg("muted", label.padEnd(8))}`,
+            theme.fg("text", value),
+            width,
+          );
+        if (handoff.goal) {
+          lines.push(...field("goal", handoff.goal));
+        }
+        if (handoff.status) {
+          lines.push(...field("status", handoff.status));
+        }
+        handoff.nextSteps.forEach((s, i) =>
           lines.push(
             ...hang(
-              `    ${th.fg("muted", (i === 0 ? "next" : "").padEnd(8))}${th.fg("accent", "›")} `,
-              th.fg("text", s),
+              `    ${theme.fg("muted", (i === 0 ? "next" : "").padEnd(8))}${theme.fg("accent", "›")} `,
+              theme.fg("text", s),
               width,
             ),
           ),
         );
-        h.blockers.forEach((s, i) =>
+        handoff.blockers.forEach((s, i) =>
           lines.push(
             ...hang(
-              `    ${th.fg("muted", (i === 0 ? "blocked" : "").padEnd(8))}${th.fg("warning", "!")} `,
-              th.fg("text", s),
+              `    ${theme.fg("muted", (i === 0 ? "blocked" : "").padEnd(8))}${theme.fg("warning", "!")} `,
+              theme.fg("text", s),
               width,
             ),
           ),
         );
-        if (h.notes) lines.push(...field("notes", h.notes));
+        if (handoff.notes) {
+          lines.push(...field("notes", handoff.notes));
+        }
       }
       lines.push("");
 
       const active = data.projectEntries;
-      lines.push(heading(th, "Memories", `${active.length} active`));
+      lines.push(heading(theme, "Memories", `${active.length} active`));
       this.previewEntries(lines, active.slice(0, 3), width, entries);
-      if (active.length > 3)
-        lines.push(`    ${th.fg("dim", `… ${active.length - 3} more in Memories`)}`);
-      if (active.length === 0) lines.push(`    ${th.fg("dim", "none yet")}`);
+      if (active.length > 3) {
+        lines.push(
+          `    ${theme.fg("dim", `… ${active.length - 3} more in Memories`)}`,
+        );
+      }
+      if (active.length === 0) {
+        lines.push(`    ${theme.fg("dim", "none yet")}`);
+      }
       lines.push("");
     }
 
     const global = data.globalEntries;
-    lines.push(heading(th, "Global", `${global.length} active`));
+    lines.push(heading(theme, "Global", `${global.length} active`));
     this.previewEntries(lines, global.slice(0, 2), width, entries);
-    if (global.length > 2)
-      lines.push(`    ${th.fg("dim", `… ${global.length - 2} more in Global`)}`);
-    if (global.length === 0) lines.push(`    ${th.fg("dim", "none yet")}`);
+    if (global.length > 2) {
+      lines.push(
+        `    ${theme.fg("dim", `… ${global.length - 2} more in Global`)}`,
+      );
+    }
+    if (global.length === 0) {
+      lines.push(`    ${theme.fg("dim", "none yet")}`);
+    }
     lines.push(
       "",
-      `  ${th.fg("dim", "injected")} ${th.fg("muted", `≈${data.injectedTokens} tokens/turn`)}`,
+      `  ${theme.fg("dim", "injected")} ${theme.fg("muted", `≈${data.injectedTokens} tokens/turn`)}`,
     );
     return { lines, entries };
   }
 
   private previewEntries(
-    lines: string[], entries: Entry[], width: number,
+    lines: string[],
+    entries: Entry[],
+    width: number,
     ranges: NonNullable<Body["entries"]>,
   ): void {
-    const { th } = this;
-    for (const e of entries) {
+    const { theme } = this;
+    for (const entry of entries) {
       const start = lines.length;
       lines.push(
         ...hang(
-          `    ${th.fg("accent", ref(e).padEnd(5))} `,
-          th.fg("text", e.title),
+          `    ${theme.fg("accent", ref(entry).padEnd(5))} `,
+          theme.fg("text", entry.title),
           width,
         ),
-        ...hang("        ", th.fg("muted", entryPreview(e)), width),
+        ...hang("        ", theme.fg("muted", entryPreview(entry)), width),
       );
-      for (const note of this.notes(e))
-        lines.push(...hang("        ", th.fg("dim", note), width));
-      ranges.push({ entry: e, start, end: lines.length - 1 });
+      for (const note of this.notes(entry)) {
+        lines.push(...hang("        ", theme.fg("dim", note), width));
+      }
+      ranges.push({ entry: entry, start, end: lines.length - 1 });
     }
   }
 }

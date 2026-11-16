@@ -4,7 +4,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { MANAGED_END, MANAGED_START } from "./store.ts";
 
 export const FILES_REASON =
-  'Use memory_save, memory_delete or handoff_update for model writes to the notebook. Reading and browsing notebook files is allowed; humans can edit memory files freely.';
+  "Use memory_save, memory_delete or handoff_update for model writes to the notebook. Reading and browsing notebook files is allowed; humans can edit memory files freely.";
 
 export const MANAGED_WARNING =
   "Note: this change touched the pi-notebook section of AGENTS.md. Prefer memory_save with kind rule for user-approved additions there. If the change was intentional, carry on.";
@@ -32,9 +32,11 @@ export interface GuardInput {
   home?: string;
 }
 
-function expand(p: string, home: string): string {
-  if (p === "~") return home;
-  return p.startsWith("~/") ? join(home, p.slice(2)) : p;
+function expand(path: string, home: string): string {
+  if (path === "~") {
+    return home;
+  }
+  return path.startsWith("~/") ? join(home, path.slice(2)) : path;
 }
 
 function inside(path: string, root: string): boolean {
@@ -43,11 +45,16 @@ function inside(path: string, root: string): boolean {
 }
 
 function managedBlock(file: string): string | undefined {
-  if (!existsSync(file)) return undefined;
-  const src = readFileSync(file, "utf8");
-  const s = src.indexOf(MANAGED_START);
-  const e = src.indexOf(MANAGED_END);
-  return s >= 0 && e > s ? src.slice(s, e + MANAGED_END.length) : undefined;
+  if (!existsSync(file)) {
+    return undefined;
+  }
+  const content = readFileSync(file, "utf8");
+  const start = content.indexOf(MANAGED_START);
+  const end = content.indexOf(MANAGED_END);
+  if (start < 0 || end <= start) {
+    return undefined;
+  }
+  return content.slice(start, end + MANAGED_END.length);
 }
 
 export function managedWriteChanged(snapshot: ManagedWriteSnapshot): boolean {
@@ -55,18 +62,26 @@ export function managedWriteChanged(snapshot: ManagedWriteSnapshot): boolean {
 }
 
 /** Keep model file writes on the tool path without restricting ordinary reading. */
-export function guardToolCall(g: GuardInput): GuardVerdict | undefined {
-  const home = g.home ?? homedir();
+export function guardToolCall(call: GuardInput): GuardVerdict | undefined {
+  const home = call.home ?? homedir();
   const block = { action: "block", reason: FILES_REASON } as const;
 
-  if (FILE_TOOLS.has(g.toolName) && typeof g.input.path === "string") {
-    const target = resolve(g.cwd, expand(g.input.path, home));
-    if (NOTEBOOK_SEGMENT.test(target) || g.roots.some((r) => inside(target, r)))
+  if (FILE_TOOLS.has(call.toolName) && typeof call.input.path === "string") {
+    const target = resolve(call.cwd, expand(call.input.path, home));
+    if (
+      NOTEBOOK_SEGMENT.test(target) ||
+      call.roots.some((root) => inside(target, root))
+    ) {
       return block;
+    }
 
-    const agents = g.agentsFiles.find((f) => resolve(f) === target);
-    if (agents)
-      return { action: "verify", snapshot: { file: target, block: managedBlock(target) } };
+    const agents = call.agentsFiles.find((file) => resolve(file) === target);
+    if (agents) {
+      return {
+        action: "verify",
+        snapshot: { file: target, block: managedBlock(target) },
+      };
+    }
   }
 
   return undefined;

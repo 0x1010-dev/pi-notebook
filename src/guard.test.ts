@@ -3,11 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-  FILES_REASON,
-  guardToolCall,
-  managedWriteChanged,
-} from "./guard.ts";
+import { FILES_REASON, guardToolCall, managedWriteChanged } from "./guard.ts";
 import { appendManaged } from "./store.ts";
 
 const home = "/Users/me";
@@ -55,9 +51,13 @@ test("verifies the managed AGENTS.md section against the resulting file", (t) =>
       input: { path: "AGENTS.md", ...input },
     });
 
-  const verdict = g("edit", { edits: [{ oldText: "- use pnpm", newText: "- use npm" }] });
+  const verdict = g("edit", {
+    edits: [{ oldText: "- use pnpm", newText: "- use npm" }],
+  });
   assert.equal(verdict?.action, "verify");
-  if (verdict?.action !== "verify") assert.fail("Expected a managed section snapshot");
+  if (verdict?.action !== "verify") {
+    assert.fail("Expected a managed section snapshot");
+  }
   assert.equal(managedWriteChanged(verdict.snapshot), false);
   writeFileSync(file, src.replace("## Preferences", "## Prefs"));
   assert.equal(managedWriteChanged(verdict.snapshot), false);
@@ -68,7 +68,9 @@ test("verifies the managed AGENTS.md section against the resulting file", (t) =>
 
   const created = g("write", { content: src });
   assert.equal(created?.action, "verify");
-  if (created?.action !== "verify") assert.fail("Expected a managed section snapshot");
+  if (created?.action !== "verify") {
+    assert.fail("Expected a managed section snapshot");
+  }
   writeFileSync(file, src);
   assert.equal(managedWriteChanged(created.snapshot), true);
   assert.equal(g("read", {}), undefined);

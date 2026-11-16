@@ -11,17 +11,22 @@ export function registerSessionEvents({
     session.reset();
     refreshStatus(ctx);
 
-    if (!ctx.hasUI || (event.reason !== "startup" && event.reason !== "new"))
+    if (!ctx.hasUI || (event.reason !== "startup" && event.reason !== "new")) {
       return;
+    }
     const { project, scope } = locate(ctx.cwd);
-    if (!project || !scope) return;
+    if (!project || !scope) {
+      return;
+    }
     const summary = startupSummary({
       project,
       scope,
       handoff: readHandoff(scope),
       entries: listAll(scope),
     });
-    if (summary) ctx.ui.notify(summary, "info");
+    if (summary) {
+      ctx.ui.notify(summary, "info");
+    }
   });
 
   pi.on("session_compact", async (_event, ctx) => {

@@ -44,7 +44,9 @@ export function registerInitCommand(rt: Runtime): void {
         );
         mode = modes[labels.indexOf(choice ?? "")];
       }
-      if (!mode) return;
+      if (!mode) {
+        return;
+      }
       const scope = projectScope(project, mode);
       initScope(scope);
       const state = loadState();

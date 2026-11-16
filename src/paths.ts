@@ -42,7 +42,9 @@ export function findProject(
       return { root: dir, name: basename(dir) };
     }
     const parent = dirname(dir);
-    if (parent === dir || dir === home) return undefined;
+    if (parent === dir || dir === home) {
+      return undefined;
+    }
     dir = parent;
   }
 }
@@ -79,7 +81,9 @@ export function projectScope(project: Project, mode: StorageMode): Scope {
 export function existingProjectScope(project: Project): Scope | undefined {
   for (const mode of ["repo", "local"] as const) {
     const scope = projectScope(project, mode);
-    if (existsSync(scope.dir)) return scope;
+    if (existsSync(scope.dir)) {
+      return scope;
+    }
   }
   return undefined;
 }

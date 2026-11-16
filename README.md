@@ -175,7 +175,9 @@ unnecessarily, and preserve still-current facts before removing mixed-topic entr
 ## Automatic behavior
 
 The system prompt contains applicable rules and a budgeted memory-title index;
-project notebooks also get a handoff pointer. Without a detected project, the
+`injectBudgetTokens` limits only that index, not instructions, rules, or load
+warnings, which remain present even with a zero index budget.
+Project notebooks also get a handoff pointer. Without a detected project, the
 prompt limits global memories to durable cross-project knowledge and explicitly
 forbids saving current-session progress globally. Relevant active memories are
 attached to user prompts automatically.
@@ -190,6 +192,12 @@ snapshot stays stable until memory content or managed rules change (or
 handoff is available in the `handoff_update` result, through
 `memory_search "handoff"`, and on resume-like prompts (once per session or
 compaction cycle).
+
+With Pi's codemode, print or return notebook results the model needs to read, for
+example `text(await tools.memory_search({ query: "handoff" }))`. A nested tool
+result is not visible to the model unless the script outputs it. Explicit handoff
+reads do not suppress a later automatic resume note, so the handoff may be
+repeated; compaction summaries and automatic resume notes still suppress repeats.
 
 Optional hidden nudges occur at commits and as context fills up, not after arbitrary
 tool failures or a quota of unsaved turns. They explicitly permit saving nothing.

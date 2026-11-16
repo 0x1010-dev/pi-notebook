@@ -32,9 +32,15 @@ test("staleness tracks described files and commit distance", () => {
   assert.match(staleness(dir, c, ["a.ts"])!, /May be outdated: a\.ts changed/);
   assert.equal(staleness(dir, c, ["b.ts"]), undefined);
   writeFileSync(join(dir, "new.ts"), "new, untracked source");
-  assert.match(staleness(dir, c, ["new.ts"])!, /May be outdated: new\.ts changed/);
+  assert.match(
+    staleness(dir, c, ["new.ts"])!,
+    /May be outdated: new\.ts changed/,
+  );
 
-  execFileSync("git", ["commit", "-qam", "next"], { cwd: dir, stdio: "ignore" });
+  execFileSync("git", ["commit", "-qam", "next"], {
+    cwd: dir,
+    stdio: "ignore",
+  });
   assert.equal(staleness(dir, c), `Saved 1 commit ago (${c}).`);
   assert.match(staleness(dir, "deadbeef")!, /not in this history/);
 });
@@ -47,12 +53,21 @@ test("asynchronous freshness matches synchronous checks and caches only within o
   writeFileSync(join(dir, "new.ts"), "untracked");
   const check = createStalenessChecker(dir);
   for (const [baseline, files] of [
-    [commit, ["a.ts"]], [commit, ["b.ts"]], [commit, ["new.ts"]],
-    [commit, []], ["deadbeef", []],
+    [commit, ["a.ts"]],
+    [commit, ["b.ts"]],
+    [commit, ["new.ts"]],
+    [commit, []],
+    ["deadbeef", []],
   ] as const) {
-    assert.equal(await check(baseline, [...files]), staleness(dir, baseline, [...files]));
+    assert.equal(
+      await check(baseline, [...files]),
+      staleness(dir, baseline, [...files]),
+    );
   }
   writeFileSync(join(dir, "b.ts"), "changed since opening");
   assert.equal(await check(commit, ["b.ts"]), undefined);
-  assert.match((await createStalenessChecker(dir)(commit, ["b.ts"]))!, /b\.ts changed/);
+  assert.match(
+    (await createStalenessChecker(dir)(commit, ["b.ts"]))!,
+    /b\.ts changed/,
+  );
 });

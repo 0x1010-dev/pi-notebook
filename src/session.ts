@@ -106,9 +106,13 @@ export class Session {
   /** Returns the highest band newly reached since the last compaction. */
   crossBand(percent: number): ContextBand | undefined {
     const band = contextBand(percent, this.cfg.contextBands);
-    if (band === undefined || this.cfg.contextBands === false) return undefined;
+    if (band === undefined || this.cfg.contextBands === false) {
+      return undefined;
+    }
     const threshold = this.cfg.contextBands[band];
-    if (threshold <= this.bandNoted) return undefined;
+    if (threshold <= this.bandNoted) {
+      return undefined;
+    }
     this.bandNoted = threshold;
     return band;
   }
@@ -122,8 +126,10 @@ export class Session {
 
   /** Whether this session's handoff was saved recently enough to trust as a compaction summary. */
   handoffFresh(): boolean {
-    return this.handoffTurn !== undefined &&
-      this.turn - this.handoffTurn <= this.cfg.handoffStaleTurns;
+    return (
+      this.handoffTurn !== undefined &&
+      this.turn - this.handoffTurn <= this.cfg.handoffStaleTurns
+    );
   }
 
   recordToolResult(toolName: string, command: unknown, isError: boolean): void {
@@ -131,21 +137,27 @@ export class Session {
       toolName === "bash" &&
       !isError &&
       COMMIT_RE.test(String(command ?? ""))
-    )
+    ) {
       this.committed = true;
+    }
   }
 
   /** Advances the turn and returns whether to send the milestone nudge. */
   endTurn(input: TurnInput): boolean {
     this.turn++;
     const { cfg } = this;
-    const handoffBand = cfg.contextBands === false ? undefined : cfg.contextBands.handoff;
+    const handoffBand =
+      cfg.contextBands === false ? undefined : cfg.contextBands.handoff;
     if (handoffBand !== undefined && input.contextPercent >= handoffBand) {
       this.committed = false;
       return false;
     }
-    if (!this.committed || this.turn - this.lastNudgeTurn < cfg.nudgeCooldownTurns)
+    if (
+      !this.committed ||
+      this.turn - this.lastNudgeTurn < cfg.nudgeCooldownTurns
+    ) {
       return false;
+    }
     this.lastNudgeTurn = this.turn;
     this.committed = false;
     return true;

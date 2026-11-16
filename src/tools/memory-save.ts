@@ -8,22 +8,36 @@ import { headCommit } from "../git.ts";
 import { resolveProjectScope } from "../flows/scope.ts";
 import { locate, type Runtime } from "../runtime.ts";
 import {
-  appendManaged, getEntry, oneLine, parseRef, ref, RULE_HEADING,
-  saveEntry, searchEntries, updateEntry,
+  type Entry,
+  appendManaged,
+  getEntry,
+  oneLine,
+  parseRef,
+  ref,
+  RULE_HEADING,
+  saveEntry,
+  searchEntries,
+  updateEntry,
 } from "../store.ts";
 import { findSecret, secretError } from "../validate.ts";
 import { callRow, splitListArgs, text, textRow } from "./shared.ts";
 
 /** Project-relative paths; missing paths are useful too, but paths outside the project are not. */
 export function normalizeMemoryFiles(files: string[], root: string): string[] {
-  return [...new Set(files.map((file) => {
+  const paths = new Set<string>();
+  for (const file of files) {
     const clean = file.trim();
-    if (!clean) return "";
+    if (!clean) {
+      continue;
+    }
+
     const path = relative(root, resolve(root, clean));
-    if (path === ".." || path.startsWith("../") || isAbsolute(path))
+    if (path === ".." || path.startsWith("../") || isAbsolute(path)) {
       throw new Error(`Related path is outside this project: ${file}`);
-    return path || ".";
-  }).filter(Boolean))];
+    }
+    paths.add(path || ".");
+  }
+  return [...paths];
 }
 
 export function registerMemorySave(rt: Runtime): void {
@@ -38,51 +52,114 @@ export function registerMemorySave(rt: Runtime): void {
       "Use kind rule only for explicit lasting user instructions; rules are always available. The user can approve global saves, keep them project-only, or reject them. Respect their scope choice without retrying.",
       "When no project is detected, new memories default to global and require user confirmation. Save globally only stable knowledge that applies across projects or an explicit user-approved global rule. Never save the current session's task, progress, plans, blockers, transcript, or project-specific details globally; if nothing independently useful across projects remains, save nothing. With a project notebook, temporary progress belongs in handoff_update; outside a project, keep it in the conversation, not the global notebook.",
     ].join("\n"),
-    promptSnippet: "memory_save: save durable knowledge; without a project, global saves must apply across projects and must not contain session progress",
+    promptSnippet:
+      "memory_save: save durable knowledge; without a project, global saves must apply across projects and must not contain session progress",
     parameters: Type.Object({
-      title: Type.Optional(Type.String({ description: "Short topic label; required for a new memory, or the complete instruction for a rule." })),
-      content: Type.Optional(Type.String({ description: "Conclusion-first Markdown; required for a new memory. When updating, replace with a complete current account, not just the latest change." })),
-      ref: Type.Optional(Type.String({ description: 'Update an existing memory, e.g. "M3" or "~M1". Omitted fields keep their values.' })),
-      tags: Type.Optional(Type.Array(Type.String(), { description: "Optional retrieval hints, e.g. ['deployment', 'systemd']." })),
-      files: Type.Optional(Type.Array(Type.String(), { description: "Related project-relative files or directories." })),
-      scope: Type.Optional(StringEnum(["project", "global"] as const, {
-        description: "Project by default when in a project; global by default otherwise. Global is only for durable cross-project knowledge or explicit user instructions, never current-session progress.",
-      })),
-      kind: Type.Optional(StringEnum(["memory", "rule"] as const, {
-        description: "Memory by default; rule only for an explicit lasting user instruction.",
-      })),
+      title: Type.Optional(
+        Type.String({
+          description:
+            "Short topic label; required for a new memory, or the complete instruction for a rule.",
+        }),
+      ),
+      content: Type.Optional(
+        Type.String({
+          description:
+            "Conclusion-first Markdown; required for a new memory. When updating, replace with a complete current account, not just the latest change.",
+        }),
+      ),
+      ref: Type.Optional(
+        Type.String({
+          description:
+            'Update an existing memory, e.g. "M3" or "~M1". Omitted fields keep their values.',
+        }),
+      ),
+      tags: Type.Optional(
+        Type.Array(Type.String(), {
+          description:
+            "Optional retrieval hints, e.g. ['deployment', 'systemd'].",
+        }),
+      ),
+      files: Type.Optional(
+        Type.Array(Type.String(), {
+          description: "Related project-relative files or directories.",
+        }),
+      ),
+      scope: Type.Optional(
+        StringEnum(["project", "global"] as const, {
+          description:
+            "Project by default when in a project; global by default otherwise. Global is only for durable cross-project knowledge or explicit user instructions, never current-session progress.",
+        }),
+      ),
+      kind: Type.Optional(
+        StringEnum(["memory", "rule"] as const, {
+          description:
+            "Memory by default; rule only for an explicit lasting user instruction.",
+        }),
+      ),
     }),
     prepareArguments: (raw) => splitListArgs(raw, ["files", "tags"]),
     executionMode: "sequential",
 
-    async execute(_id, p, _signal, _onUpdate, ctx) {
+    async execute(_id, args, _signal, _onUpdate, ctx) {
       const { project, scope: existing, global } = locate(ctx.cwd);
-      const parsed = p.ref ? parseRef(p.ref) : undefined;
-      if (p.ref && !parsed) throw new Error('Invalid ref. Use M3 or ~M1; list refs with memory_search "*".');
-      if (p.ref && p.kind === "rule") throw new Error("Rules are edited with /nb:prefs, not a memory ref.");
+      const parsed = args.ref ? parseRef(args.ref) : undefined;
+      if (args.ref && !parsed) {
+        throw new Error(
+          'Invalid ref. Use M3 or ~M1; list refs with memory_search "*".',
+        );
+      }
+      if (args.ref && args.kind === "rule") {
+        throw new Error("Rules are edited with /nb:prefs, not a memory ref.");
+      }
       let globalTarget = parsed
         ? parsed.global
-        : p.scope === "global" || (!project && p.scope !== "project");
+        : args.scope === "global" || (!project && args.scope !== "project");
       const proposedGlobal = globalTarget;
-      if (parsed && p.scope && (p.scope === "global") !== parsed.global)
+      if (parsed && args.scope && (args.scope === "global") !== parsed.global) {
         throw new Error("scope conflicts with ref; omit scope when updating.");
-      const title = p.title === undefined ? undefined : oneLine(p.title);
-      const body = p.content?.trim();
-      if (title !== undefined && !title || body !== undefined && !body)
+      }
+
+      const title = args.title === undefined ? undefined : oneLine(args.title);
+      const body = args.content?.trim();
+      if ((title !== undefined && !title) || (body !== undefined && !body)) {
         throw new Error("Title and content cannot be blank.");
-      if (!p.ref && !title) throw new Error("A new memory or rule needs a title.");
-      if (!p.ref && p.kind !== "rule" && !body)
-        throw new Error("A new memory needs content. Put the useful conclusion first.");
-      const secret = findSecret([title, body, ...(p.tags ?? []), ...(p.files ?? [])].join("\n"));
-      if (secret) throw new Error(secretError(secret));
-      if ((globalTarget || p.kind === "rule") && !ctx.hasUI)
-        throw new Error("Rules and global memories need user confirmation, unavailable in this mode.");
-      if (!globalTarget && !project) throw new Error("Not in a project. Use scope global only for knowledge that applies across projects.");
+      }
+      if (!args.ref && !title) {
+        throw new Error("A new memory or rule needs a title.");
+      }
+      if (!args.ref && args.kind !== "rule" && !body) {
+        throw new Error(
+          "A new memory needs content. Put the useful conclusion first.",
+        );
+      }
+      const secret = findSecret(
+        [title, body, ...(args.tags ?? []), ...(args.files ?? [])].join("\n"),
+      );
+      if (secret) {
+        throw new Error(secretError(secret));
+      }
+      if ((globalTarget || args.kind === "rule") && !ctx.hasUI) {
+        throw new Error(
+          "Rules and global memories need user confirmation, unavailable in this mode.",
+        );
+      }
+      if (!globalTarget && !project) {
+        throw new Error(
+          "Not in a project. Use scope global only for knowledge that applies across projects.",
+        );
+      }
+
       const originalScope = parsed?.global ? global : existing;
-      const original = parsed && originalScope ? getEntry(originalScope, parsed.id) : undefined;
-      if (parsed && !original) throw new Error(`${p.ref} not found.`);
+      const original =
+        parsed && originalScope
+          ? getEntry(originalScope, parsed.id)
+          : undefined;
+      if (parsed && !original) {
+        throw new Error(`${args.ref} not found.`);
+      }
       let previous = original;
       let projectCopy = false;
+
       if (globalTarget) {
         const globalOption = original ? "Update globally" : "Save globally";
         const projectOption = original
@@ -90,64 +167,172 @@ export function registerMemorySave(rt: Runtime): void {
           : "Save to this project only";
         const globalNotice =
           "\n\nGlobal scope is only for durable knowledge or explicit preferences that apply across projects. Never save current-session progress or project-specific details globally.";
+        let action = args.kind === "rule" ? "Save rule" : "Save memory";
+        if (original) {
+          action = `Update ${ref(original)}`;
+        }
+        const preview = clip(
+          body ?? original?.body ?? "",
+          CONFIRM_PREVIEW_CHARS,
+        );
         const choice = await ctx.ui.select(
-          `${original ? `Update ${ref(original)}` : p.kind === "rule" ? "Save rule" : "Save memory"}?\n\n${title ?? original?.title}\n\n${clip(body ?? original?.body ?? "", CONFIRM_PREVIEW_CHARS)}${globalNotice}`,
+          `${action}?\n\n${title ?? original?.title}\n\n${preview}${globalNotice}`,
           [globalOption, ...(project ? [projectOption] : []), "Reject"],
         );
-        if (choice !== globalOption && choice !== projectOption)
-          return { content: text("The user rejected or cancelled this save. Do not retry."), details: { declined: true } };
+        if (choice !== globalOption && choice !== projectOption) {
+          return {
+            content: text(
+              "The user rejected or cancelled this save. Do not retry.",
+            ),
+            details: { declined: true },
+          };
+        }
         if (choice === projectOption && project) {
           globalTarget = false;
           projectCopy = !!original;
           previous = undefined;
         }
       }
+
       let scope = globalTarget ? global : existing;
       if (!scope) {
-        if (p.ref && !projectCopy) throw new Error(`${p.ref} not found: this project has no notebook.`);
-        const result = await resolveProjectScope(ctx, project!, rt.session.cfg.storage);
-        if (!("scope" in result))
-          return { content: text("The user declined this project notebook. Do not retry."), details: { declined: true } };
+        if (args.ref && !projectCopy) {
+          throw new Error(
+            `${args.ref} not found: this project has no notebook.`,
+          );
+        }
+        const result = await resolveProjectScope(
+          ctx,
+          project!,
+          rt.session.cfg.storage,
+        );
+        if (!("scope" in result)) {
+          return {
+            content: text(
+              "The user declined this project notebook. Do not retry.",
+            ),
+            details: { declined: true },
+          };
+        }
         scope = result.scope;
       }
-      if (p.kind === "rule") {
+
+      if (args.kind === "rule") {
         const line = oneLine(body ? `${title}: ${body}` : title!);
-        const ok = proposedGlobal || await ctx.ui.confirm(
-          `Save rule ${globalTarget ? "for all projects" : "for this project"}?`, line,
+        const approved =
+          proposedGlobal ||
+          (await ctx.ui.confirm(
+            `Save rule ${globalTarget ? "for all projects" : "for this project"}?`,
+            line,
+          ));
+        if (!approved) {
+          return {
+            content: text("The user declined. Do not retry."),
+            details: { declined: true },
+          };
+        }
+        const added = appendManaged(
+          scope.agentsFile,
+          RULE_HEADING[globalTarget ? "preference" : "convention"],
+          line,
         );
-        if (!ok) return { content: text("The user declined. Do not retry."), details: { declined: true } };
-        const added = appendManaged(scope.agentsFile, RULE_HEADING[globalTarget ? "preference" : "convention"], line);
-        if (added) rt.markSaved(ctx);
-        return { content: text(`${added ? "Saved" : "Already recorded"} ${globalTarget ? "global" : "project"} rule: ${line}`), details: { label: line } };
+        if (added) {
+          rt.markSaved(ctx);
+        }
+        return {
+          content: text(
+            `${added ? "Saved" : "Already recorded"} ${globalTarget ? "global" : "project"} rule: ${line}`,
+          ),
+          details: { label: line },
+        };
       }
-      if (globalTarget && p.files?.length) throw new Error("Related files are project-relative; omit files for global memories.");
-      const files = p.files && project ? normalizeMemoryFiles(p.files, project.root) : undefined;
-      const commit = !globalTarget && project ? headCommit(project.root) : undefined;
-      const loaded = loadNotebook({ project, scope: globalTarget ? existing : scope, global });
+
+      if (globalTarget && args.files?.length) {
+        throw new Error(
+          "Related files are project-relative; omit files for global memories.",
+        );
+      }
+      const files =
+        args.files && project
+          ? normalizeMemoryFiles(args.files, project.root)
+          : undefined;
+      const commit =
+        !globalTarget && project ? headCommit(project.root) : undefined;
+      const loaded = loadNotebook({
+        project,
+        scope: globalTarget ? existing : scope,
+        global,
+      });
       const collection = globalTarget ? loaded.everywhere : loaded.local!;
-      const entry = previous
-        ? updateEntry(scope, previous.id, { title, body, tags: p.tags, files,
-            commit: body !== undefined || files !== undefined ? commit : previous.commit }, undefined, collection)
-        : saveEntry(scope, title ?? original!.title, body ?? original!.body,
-            { tags: p.tags ?? original?.tags, files, commit }, undefined, collection);
+      let entry: Entry;
+      if (previous) {
+        const refreshBaseline = body !== undefined || files !== undefined;
+        entry = updateEntry(
+          scope,
+          previous.id,
+          {
+            title,
+            body,
+            tags: args.tags,
+            files,
+            commit: refreshBaseline ? commit : previous.commit,
+          },
+          undefined,
+          collection,
+        );
+      } else {
+        entry = saveEntry(
+          scope,
+          title ?? original!.title,
+          body ?? original!.body,
+          { tags: args.tags ?? original?.tags, files, commit },
+          undefined,
+          collection,
+        );
+      }
       rt.markSaved(ctx, loaded);
-      const related = searchEntries([scope], [entry.title, ...entry.tags].join(" "), 3,
-        { exclude: (e) => e.id === entry.id, entries: collection.entries });
-      const advice = related.length
-        ? `\nRelated memories (check only if useful): ${related.map((h) => `${ref(h.entry)} ${h.entry.title}`).join("; ")}.`
-        : "";
+
+      const related = searchEntries(
+        [scope],
+        [entry.title, ...entry.tags].join(" "),
+        3,
+        {
+          exclude: (candidate) => candidate.id === entry.id,
+          entries: collection.entries,
+        },
+      );
+      const action = previous ? "Updated" : "Saved";
+      const location = globalTarget ? "globally" : "for this project only";
+      let message = `${action} ${ref(entry)} "${entry.title}" ${location}.`;
+      if (projectCopy) {
+        message += ` Global memory ${ref(original!)} was left unchanged.`;
+      }
+      if (related.length) {
+        const references = related.map(
+          (hit) => `${ref(hit.entry)} ${hit.entry.title}`,
+        );
+        message += `\nRelated memories (check only if useful): ${references.join("; ")}.`;
+      }
       return {
-        content: text(`${previous ? "Updated" : "Saved"} ${ref(entry)} "${entry.title}" ${globalTarget ? "globally" : "for this project only"}.${projectCopy ? ` Global memory ${ref(original!)} was left unchanged.` : ""}${advice}`),
+        content: text(message),
         details: { label: `${ref(entry)} ${entry.title}` },
       };
     },
     renderCall(args, theme) {
-      return callRow(theme, "save", theme.fg("dim", args.ref ?? args.title ?? ""));
+      return callRow(
+        theme,
+        "save",
+        theme.fg("dim", args.ref ?? args.title ?? ""),
+      );
     },
     renderResult(result, _opts, theme) {
-      const d = result.details as { declined?: boolean; label?: string } | undefined;
-      return textRow(d?.declined ? theme.fg("warning", "declined")
-        : theme.fg("muted", d?.label ?? "not saved"));
+      const details = result.details as
+        { declined?: boolean; label?: string } | undefined;
+      return textRow(
+        details?.declined
+          ? theme.fg("warning", "declined")
+          : theme.fg("muted", details?.label ?? "not saved"),
+      );
     },
   });
 }

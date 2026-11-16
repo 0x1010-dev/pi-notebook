@@ -28,11 +28,22 @@ export const NO_HANDOFF_MILESTONE_NUDGE =
 export type ContextBand = keyof ContextBands;
 
 /** Highest band whose threshold `percent` has reached. */
-export function contextBand(percent: number, bands: ContextBands | false): ContextBand | undefined {
-  if (bands === false) return undefined;
-  if (percent >= bands.compact) return "compact";
-  if (percent >= bands.handoff) return "handoff";
-  if (percent >= bands.save) return "save";
+export function contextBand(
+  percent: number,
+  bands: ContextBands | false,
+): ContextBand | undefined {
+  if (bands === false) {
+    return undefined;
+  }
+  if (percent >= bands.compact) {
+    return "compact";
+  }
+  if (percent >= bands.handoff) {
+    return "handoff";
+  }
+  if (percent >= bands.save) {
+    return "save";
+  }
   return undefined;
 }
 
@@ -41,7 +52,10 @@ export function usageText(percent: number): string {
 }
 
 export function resumeText(percent: number | undefined): string {
-  const usage = percent === undefined ? "" : ` Context window is now ${Math.round(percent)}% full.`;
+  const usage =
+    percent === undefined
+      ? ""
+      : ` Context window is now ${Math.round(percent)}% full.`;
   return `[pi-notebook] Compaction is complete.${usage} Earlier messages are already handled; continue from the handoff's next steps.`;
 }
 
@@ -52,10 +66,12 @@ export function bandText(
 ): string {
   const usage = usageText(percent);
   const kind = opts.handoff ? band : "save";
-  if (kind === "save")
+  if (kind === "save") {
     return `${usage} Consider saving durable knowledge at the appropriate scope. Global memories must apply across projects and must not contain session progress.`;
-  if (kind === "handoff")
+  }
+  if (kind === "handoff") {
     return `${usage} Consider updating the handoff if progress has changed.`;
+  }
   return opts.compactTool
     ? `${usage} Compaction is near. At the next clean stopping point, update the handoff and call context_compact.`
     : `${usage} Compaction is near. At the next clean stopping point, update the handoff.`;

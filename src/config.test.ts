@@ -10,7 +10,10 @@ process.env.PI_CODING_AGENT_DIR = settingsDir;
 after(() => rmSync(settingsDir, { recursive: true, force: true }));
 
 function loadBands(contextBands: unknown) {
-  writeFileSync(join(settingsDir, "settings.json"), JSON.stringify({ notebook: { contextBands } }));
+  writeFileSync(
+    join(settingsDir, "settings.json"),
+    JSON.stringify({ notebook: { contextBands } }),
+  );
   return loadConfig().contextBands;
 }
 
@@ -25,7 +28,11 @@ test("false disables context reminders", () => {
 
 test("invalid context bands retain defaults", () => {
   for (const bands of [
-    null, true, [], [40, 55, 70], {},
+    null,
+    true,
+    [],
+    [40, 55, 70],
+    {},
     { save: 40, handoff: 55 },
     { save: 0, handoff: 55, compact: 70 },
     { save: -1, handoff: 55, compact: 70 },
@@ -34,5 +41,7 @@ test("invalid context bands retain defaults", () => {
     { save: 55, handoff: 40, compact: 70 },
     { save: 40, handoff: 70, compact: 55 },
     { save: 40, handoff: 55, compact: 101 },
-  ]) assert.deepEqual(loadBands(bands), DEFAULT_CONFIG.contextBands);
+  ]) {
+    assert.deepEqual(loadBands(bands), DEFAULT_CONFIG.contextBands);
+  }
 });

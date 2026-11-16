@@ -30,10 +30,13 @@ export async function resolveProjectScope(
   preferred: StorageMode,
 ): Promise<Resolution> {
   const existing = existingProjectScope(project);
-  if (existing) return { scope: existing };
+  if (existing) {
+    return { scope: existing };
+  }
   const state = loadState();
-  if (state.declined.includes(project.root) || !ctx.hasUI)
+  if (state.declined.includes(project.root) || !ctx.hasUI) {
     return { cancelled: true };
+  }
 
   const modes = storageModes(preferred);
   const choice = await ctx.ui.select(`◆ No notebook for ${project.name} yet`, [

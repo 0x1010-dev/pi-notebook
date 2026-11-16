@@ -23,7 +23,9 @@ export function noteLines(cwd: string, e: Entry): string[] {
   const root = findProject(cwd)?.root;
   const warn =
     root && e.commit ? staleness(root, e.commit, e.files) : undefined;
-  if (warn) lines.push(warn);
+  if (warn) {
+    lines.push(warn);
+  }
   return lines;
 }
 

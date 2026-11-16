@@ -25,11 +25,16 @@ export type ParsedQuery =
 
 export function parseQuery(query: string): ParsedQuery {
   const trimmed = query.trim();
-  if (trimmed === "*") return { mode: "all" };
-  if (trimmed.toLowerCase() === "handoff") return { mode: "handoff" };
+  if (trimmed === "*") {
+    return { mode: "all" };
+  }
+  if (trimmed.toLowerCase() === "handoff") {
+    return { mode: "handoff" };
+  }
   const tokens = trimmed.split(/[\s,]+/).filter(Boolean);
-  if (tokens.length && tokens.every((t) => parseRef(t)))
+  if (tokens.length && tokens.every((t) => parseRef(t))) {
     return { mode: "refs", refs: tokens };
+  }
   return { mode: "keywords", words: tokens };
 }
 
@@ -49,14 +54,19 @@ function readRefs(
   const missing: string[] = [];
   parsed.forEach((r, i) => {
     const s = r!.global ? global : scope;
-    const e = s ? getEntry(s, r!.id) : undefined;
-    if (e) found.push(e);
-    else missing.push(words[i]);
+    const entry = s ? getEntry(s, r!.id) : undefined;
+    if (entry) {
+      found.push(entry);
+    } else {
+      missing.push(words[i]);
+    }
   });
-  const parts = found.map((e) =>
-    [entryHead(e), ...noteLines(cwd, e), "", e.body].join("\n"),
+  const parts = found.map((entry) =>
+    [entryHead(entry), ...noteLines(cwd, entry), "", entry.body].join("\n"),
   );
-  if (missing.length) parts.push(`Not found: ${missing.join(", ")}`);
+  if (missing.length) {
+    parts.push(`Not found: ${missing.join(", ")}`);
+  }
   return { body: parts.join("\n\n---\n\n"), refs: found.map(entryLabel) };
 }
 
@@ -70,14 +80,19 @@ export function registerMemorySearch(rt: Runtime): void {
       "memory_search: search or list the notebook, read entries by ref, or read the project handoff",
     parameters: Type.Object({
       query: Type.String({
-        description: 'Keywords, #tags, file paths, refs like "M3 ~M1", "*", or "handoff"',
+        description:
+          'Keywords, #tags, file paths, refs like "M3 ~M1", "*", or "handoff"',
       }),
       limit: Type.Optional(
-        Type.Integer({ minimum: 1, maximum: 100, description: "Max keyword results, default 8" }),
+        Type.Integer({
+          minimum: 1,
+          maximum: 100,
+          description: "Max keyword results, default 8",
+        }),
       ),
     }),
 
-    async execute(_id, p, _signal, _onUpdate, ctx): Promise<SearchOutput> {
+    async execute(_id, args, _signal, _onUpdate, ctx): Promise<SearchOutput> {
       const { scope, global } = locate(ctx.cwd);
       const scopes = scope ? [scope, global] : [global];
       const collections = scopes.map((s) => {
@@ -87,17 +102,24 @@ export function registerMemorySearch(rt: Runtime): void {
       });
       const loadedHandoff = scope ? loadHandoff(scope) : undefined;
       const diagnostics = diagnosticText([
-        ...collections.flatMap((c) => c.diagnostics), ...(loadedHandoff?.diagnostics ?? []),
+        ...collections.flatMap((c) => c.diagnostics),
+        ...(loadedHandoff?.diagnostics ?? []),
       ]);
-      const resultText = (body: string) => text([diagnostics, body].filter(Boolean).join("\n\n"));
+      const resultText = (body: string) =>
+        text([diagnostics, body].filter(Boolean).join("\n\n"));
       const handoff: Handoff | undefined = loadedHandoff?.handoff;
       const handoffRefs = handoff ? [`handoff ${handoff.goal}`] : [];
-      const q = parseQuery(p.query);
+      const query = parseQuery(args.query);
 
-      if (q.mode === "all") {
+      if (query.mode === "all") {
         const all = collections.flatMap((c) => c.entries);
         const list = all.length
-          ? all.map((e) => `${entryHead(e)}\n  ${e.tags.map((t) => `#${t}`).join(" ")}\n  ${preview(e)}`).join("\n\n")
+          ? all
+              .map(
+                (entry) =>
+                  `${entryHead(entry)}\n  ${entry.tags.map((t) => `#${t}`).join(" ")}\n  ${preview(entry)}`,
+              )
+              .join("\n\n")
           : "The notebook is empty.";
         return {
           content: resultText(
@@ -108,29 +130,41 @@ export function registerMemorySearch(rt: Runtime): void {
           details: { refs: [...handoffRefs, ...all.map(entryLabel)] },
         };
       }
-      if (q.mode === "handoff") {
-        if (handoff) rt.session.handoffShown = true;
+      if (query.mode === "handoff") {
+        let body = scope
+          ? "No handoff for this project yet."
+          : "No project detected. Handoffs are project-scoped; the global notebook stores only durable cross-project knowledge.";
+        if (handoff) {
+          body = formatHandoff(handoff);
+        }
         return {
-          content: resultText(
-            handoff
-              ? formatHandoff(handoff)
-              : scope
-                ? "No handoff for this project yet."
-                : "No project detected. Handoffs are project-scoped; the global notebook stores only durable cross-project knowledge.",
-          ),
+          content: resultText(body),
           details: { refs: handoffRefs },
         };
       }
-      if (q.mode === "refs") {
-        const read = readRefs(ctx.cwd, q.refs, scope, global);
+      if (query.mode === "refs") {
+        const read = readRefs(ctx.cwd, query.refs, scope, global);
         return { content: resultText(read.body), details: { refs: read.refs } };
       }
 
-      const hits = searchEntries(scopes, q.words.join(" "), p.limit ?? 8, {
-        entries: collections.flatMap((c) => c.entries),
-      });
+      const hits = searchEntries(
+        scopes,
+        query.words.join(" "),
+        args.limit ?? 8,
+        {
+          entries: collections.flatMap((c) => c.entries),
+        },
+      );
+      const results = hits.map((hit) =>
+        [
+          entryHead(hit.entry),
+          ...noteLines(ctx.cwd, hit.entry),
+          hit.snippet,
+          `Matched: ${hit.matches.join(", ")}`,
+        ].join("\n"),
+      );
       const body = hits.length
-        ? `${hits.map((hit) => [entryHead(hit.entry), ...noteLines(ctx.cwd, hit.entry), hit.snippet, `Matched: ${hit.matches.join(", ")}`].join("\n")).join("\n\n")}\n\nPass refs to read entries in full.`
+        ? `${results.join("\n\n")}\n\nPass refs to read entries in full.`
         : 'No matches. Try other keywords, or "*" to list every entry.';
       return {
         content: resultText(body),
@@ -145,14 +179,17 @@ export function registerMemorySearch(rt: Runtime): void {
     renderResult(result, { expanded }, theme) {
       const refs =
         (result.details as { refs?: string[] } | undefined)?.refs ?? [];
-      if (refs.length === 0) return textRow(theme.fg("dim", "no matches"));
+      if (refs.length === 0) {
+        return textRow(theme.fg("dim", "no matches"));
+      }
       const shown = expanded ? refs : refs.slice(0, 3);
       const lines = shown.map((r) => {
         const [tag, ...rest] = r.split(" ");
         return `${theme.fg("accent", tag)} ${theme.fg("muted", rest.join(" "))}`;
       });
-      if (!expanded && refs.length > 3)
+      if (!expanded && refs.length > 3) {
         lines.push(theme.fg("dim", `… ${refs.length - 3} more`));
+      }
       return textRow(lines.join("\n"));
     },
   });

@@ -29,7 +29,9 @@ test("milestone nudges respect the cooldown", () => {
   s.recordToolResult("bash", "git commit -m x", false);
   assert.equal(s.endTurn(idle), true);
   s.recordToolResult("bash", "git commit -m y", false);
-  for (let i = 1; i < s.cfg.nudgeCooldownTurns; i++) assert.equal(s.endTurn(idle), false);
+  for (let i = 1; i < s.cfg.nudgeCooldownTurns; i++) {
+    assert.equal(s.endTurn(idle), false);
+  }
   assert.equal(s.endTurn(idle), true);
 });
 
@@ -51,7 +53,10 @@ test("context at or above the handoff band suppresses the milestone nudge and cl
   const s = session();
   s.recordToolResult("bash", "git commit -m x", false);
   assert.notEqual(s.cfg.contextBands, false);
-  const high = { contextPercent: s.cfg.contextBands === false ? 0 : s.cfg.contextBands.handoff };
+  const high = {
+    contextPercent:
+      s.cfg.contextBands === false ? 0 : s.cfg.contextBands.handoff,
+  };
   assert.equal(s.endTurn(high), false);
   // the band already asked for a handoff, so the commit obligation is cleared, not deferred
   assert.equal(s.endTurn(high), false);
@@ -62,7 +67,9 @@ test("handoffFresh tracks turns since this session last saved the handoff", () =
   assert.equal(s.handoffFresh(), false);
   s.markHandoff();
   assert.equal(s.handoffFresh(), true);
-  for (let i = 0; i < s.cfg.handoffStaleTurns; i++) s.endTurn(idle);
+  for (let i = 0; i < s.cfg.handoffStaleTurns; i++) {
+    s.endTurn(idle);
+  }
   assert.equal(s.handoffFresh(), true);
   s.endTurn(idle);
   assert.equal(s.handoffFresh(), false);

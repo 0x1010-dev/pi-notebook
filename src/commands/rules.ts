@@ -17,8 +17,12 @@ export function registerRememberCommand(rt: Runtime): void {
       const input =
         args.trim() ||
         (await ctx.ui.input("◆ Remember", "e.g. use pnpm, not npm"))?.trim();
-      if (!input) return;
-      if (rejectSecret(ctx, input)) return;
+      if (!input) {
+        return;
+      }
+      if (rejectSecret(ctx, input)) {
+        return;
+      }
 
       const { project, global } = locate(ctx.cwd);
       let file = global.agentsFile;
@@ -30,14 +34,18 @@ export function registerRememberCommand(rt: Runtime): void {
           "Preference (everywhere)",
           `Convention (${project.name} only)`,
         );
-        if (!target) return;
+        if (!target) {
+          return;
+        }
         if (target === "project") {
           const r = await resolveProjectScope(
             ctx,
             project,
             rt.session.cfg.storage,
           );
-          if (!("scope" in r)) return;
+          if (!("scope" in r)) {
+            return;
+          }
           file = r.scope.agentsFile;
           kind = "convention";
         }
@@ -64,7 +72,9 @@ export function registerPrefsCommand(rt: Runtime): void {
           "Preferences (everywhere)",
           `Conventions (${project.name})`,
         );
-        if (!target) return;
+        if (!target) {
+          return;
+        }
         if (target === "project") {
           file = scope.agentsFile;
           kind = "convention";
@@ -76,12 +86,16 @@ export function registerPrefsCommand(rt: Runtime): void {
         `◆ ${noun}, one per line`,
         readManaged(file).join("\n"),
       );
-      if (edited === undefined) return;
+      if (edited === undefined) {
+        return;
+      }
       const lines = edited
         .split("\n")
         .map((l) => l.replace(/^\s*-\s*/, "").trim())
         .filter(Boolean);
-      if (rejectSecret(ctx, lines.join("\n"))) return;
+      if (rejectSecret(ctx, lines.join("\n"))) {
+        return;
+      }
       replaceManaged(file, heading, lines);
       rt.session.invalidate();
       ctx.ui.notify(`✓ Saved ${lines.length} ${noun.toLowerCase()}`, "info");

@@ -8,15 +8,15 @@ export function registerForgetCommand(rt: Runtime): void {
     description:
       "Permanently delete obsolete memories after confirmation, e.g. /nb:forget M3 no longer true",
     getArgumentCompletions: (prefix) => {
-      if (/\s/.test(prefix.trimStart())) return [];
+      if (/\s/.test(prefix.trimStart())) {
+        return [];
+      }
       const { scope, global } = locate(process.cwd());
       const want = prefix.trim().toLowerCase();
       return [scope, global]
         .filter((s): s is Scope => !!s)
         .flatMap((s) => listAll(s))
-        .filter(
-          (e) => ref(e).toLowerCase().startsWith(want),
-        )
+        .filter((e) => ref(e).toLowerCase().startsWith(want))
         .map((e) => ({ value: ref(e), label: `${ref(e)} ${e.title}` }));
     },
     handler: async (args, ctx) => {
@@ -32,8 +32,9 @@ export function registerForgetCommand(rt: Runtime): void {
       }
       const reason = n < 0 ? "" : words.slice(n).join(" ");
       const r = await deleteRefs(rt, ctx, refs, reason);
-      if (!r.declined)
+      if (!r.declined) {
         ctx.ui.notify(`◆ ${r.message}`, r.deleted.length ? "info" : "warning");
+      }
     },
   });
 }

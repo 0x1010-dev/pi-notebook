@@ -3,13 +3,19 @@ import type { Project, Scope } from "./paths.ts";
 import type { Entry, Handoff, MemoryDiagnostic } from "./store.ts";
 
 export function ago(iso: string, now = Date.now()): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "?";
-  const min = Math.max(0, Math.round((now - t) / 60000));
-  if (min < 60) return `${min}m`;
-  const h = Math.round(min / 60);
-  if (h < 48) return `${h}h`;
-  return `${Math.round(h / 24)}d`;
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) {
+    return "?";
+  }
+  const minutes = Math.max(0, Math.round((now - timestamp) / 60000));
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) {
+    return `${hours}h`;
+  }
+  return `${Math.round(hours / 24)}d`;
 }
 
 export const STALE_MS = 24 * 60 * 60 * 1000;
@@ -27,42 +33,48 @@ export function counts(entries: Entry[]): number {
   return entries.length;
 }
 
-function summary(th: Theme, entries: Entry[]): string {
+function summary(theme: Theme, entries: Entry[]): string {
   const active = counts(entries);
-  return th.fg("text", `${active} active`);
+  return theme.fg("text", `${active} active`);
 }
 
 /** Footer status, e.g. `◆ NB · 8 active · handoff updated 2h ago` */
-export function statusLine(th: Theme, s: StatusInfo): string {
-  const sep = th.fg("dim", " · ");
-  const lit = !!s.scope || s.globalEntries.length > 0;
+export function statusLine(theme: Theme, status: StatusInfo): string {
+  const separator = theme.fg("dim", " · ");
+  const hasNotebook = !!status.scope || status.globalEntries.length > 0;
   const parts = [
-    `${th.fg(lit ? "accent" : "dim", lit ? "◆" : "◇")} ${th.fg(lit ? "muted" : "dim", "NB")}`,
+    `${theme.fg(hasNotebook ? "accent" : "dim", hasNotebook ? "◆" : "◇")} ${theme.fg(hasNotebook ? "muted" : "dim", "NB")}`,
   ];
-  if (s.diagnostics?.length) parts.push(th.fg("warning", `${s.diagnostics.length} files need repair`));
+  if (status.diagnostics?.length) {
+    parts.push(
+      theme.fg("warning", `${status.diagnostics.length} files need repair`),
+    );
+  }
 
-  if (s.scope) {
-    parts.push(summary(th, s.projectEntries));
-    if (s.handoff?.updated) {
-      const age = ago(s.handoff.updated);
-      const stale = Date.now() - Date.parse(s.handoff.updated) > STALE_MS;
+  if (status.scope) {
+    parts.push(summary(theme, status.projectEntries));
+    if (status.handoff?.updated) {
+      const age = ago(status.handoff.updated);
+      const stale = Date.now() - Date.parse(status.handoff.updated) > STALE_MS;
       parts.push(
         stale
-          ? th.fg("warning", `handoff ${age} old`)
-          : th.fg(
+          ? theme.fg("warning", `handoff ${age} old`)
+          : theme.fg(
               "muted",
               `handoff updated ${age === "0m" ? "just now" : `${age} ago`}`,
             ),
       );
     } else {
-      parts.push(th.fg("dim", "no handoff"));
+      parts.push(theme.fg("dim", "no handoff"));
     }
-  } else if (s.project) {
-    parts.push(th.fg("dim", "not set up"));
-  } else if (lit) {
-    parts.push(`${th.fg("muted", "global")} ${summary(th, s.globalEntries)}`);
+  } else if (status.project) {
+    parts.push(theme.fg("dim", "not set up"));
+  } else if (hasNotebook) {
+    parts.push(
+      `${theme.fg("muted", "global")} ${summary(theme, status.globalEntries)}`,
+    );
   } else {
-    parts.push(th.fg("dim", "empty"));
+    parts.push(theme.fg("dim", "empty"));
   }
-  return parts.join(sep);
+  return parts.join(separator);
 }

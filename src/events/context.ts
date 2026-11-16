@@ -6,10 +6,15 @@ import { usageText } from "../signals.ts";
 export function registerContextEvents({ pi, session }: Runtime): void {
   pi.on("context", async (event, ctx) => {
     const { cfg } = session;
-    const from = cfg.contextBands === false ? undefined : cfg.contextBands.compact;
-    if (!cfg.nudgeModel || from === undefined) return;
+    const from =
+      cfg.contextBands === false ? undefined : cfg.contextBands.compact;
+    if (!cfg.nudgeModel || from === undefined) {
+      return;
+    }
     const percent = ctx.getContextUsage()?.percent;
-    if (percent == null || percent < from) return;
+    if (percent == null || percent < from) {
+      return;
+    }
     return {
       messages: [
         ...event.messages,

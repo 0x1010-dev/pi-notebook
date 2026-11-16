@@ -13,8 +13,7 @@ export function registerMemoryDelete(rt: Runtime): void {
       "memory_delete: permanently remove obsolete memories (user confirms)",
     parameters: Type.Object({
       refs: Type.Array(Type.String(), {
-        description:
-          'Refs to delete, for example ["M3", "~M1"].',
+        description: 'Refs to delete, for example ["M3", "~M1"].',
       }),
       reason: Type.String({
         description: "Why they no longer apply, one line.",
@@ -41,11 +40,13 @@ export function registerMemoryDelete(rt: Runtime): void {
 
     renderResult(result, _opts, theme) {
       const d = result.details as
-        | { deleted: string[]; declined: boolean }
-        | undefined;
-      if (d?.declined) return textRow(theme.fg("warning", "✗ declined"));
-      if (!d?.deleted.length)
+        { deleted: string[]; declined: boolean } | undefined;
+      if (d?.declined) {
+        return textRow(theme.fg("warning", "✗ declined"));
+      }
+      if (!d?.deleted.length) {
         return textRow(theme.fg("dim", "nothing deleted"));
+      }
       return textRow(
         `${theme.fg("success", "✓ ")}${theme.fg("muted", "deleted")} ${theme.fg("accent", d.deleted.join(" "))}`,
       );

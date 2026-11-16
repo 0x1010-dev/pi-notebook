@@ -34,7 +34,9 @@ export default function notebook(pi: ExtensionAPI): void {
   registerMemorySearch(rt);
   registerHandoffUpdate(rt);
   registerMemoryDelete(rt);
-  if (rt.session.cfg.handoffCompaction) registerContextCompact(rt);
+  if (rt.session.cfg.handoffCompaction) {
+    registerContextCompact(rt);
+  }
 
   registerShowCommand(rt);
   registerInitCommand(rt);
