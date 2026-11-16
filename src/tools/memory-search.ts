@@ -65,7 +65,7 @@ export function registerMemorySearch(rt: Runtime): void {
     name: "memory_search",
     label: "Notebook",
     description:
-      'Search current durable knowledge or read the handoff. Use keywords (including file paths), #tags, refs like "M3 ~M1" for full memories, "*" to browse, or "handoff".',
+      'Search current durable knowledge or read the project handoff. Use keywords (including file paths), #tags, refs like "M3 ~M1" for full memories, "*" to browse, or "handoff". Handoffs are project-scoped; the handoff query explains when no project is detected.',
     promptSnippet:
       "memory_search: search or list the notebook, read entries by ref, or read the project handoff",
     parameters: Type.Object({
@@ -114,7 +114,9 @@ export function registerMemorySearch(rt: Runtime): void {
           content: resultText(
             handoff
               ? formatHandoff(handoff)
-              : "No handoff for this project yet.",
+              : scope
+                ? "No handoff for this project yet."
+                : "No project detected. Handoffs are project-scoped; the global notebook stores only durable cross-project knowledge.",
           ),
           details: { refs: handoffRefs },
         };

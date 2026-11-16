@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contextBand, bandText, COMMIT_RE, looksLikePreference, looksLikeResume, MILESTONE_NUDGE } from "./signals.ts";
+import { contextBand, bandText, COMMIT_RE, looksLikePreference, looksLikeResume, MILESTONE_NUDGE, NO_HANDOFF_MILESTONE_NUDGE } from "./signals.ts";
 
 test("resume detection", () => {
   for (const text of ["Where did we end up yesterday?", "What's the plan for today?", "let's continue", "catch me up"])
@@ -23,6 +23,8 @@ test("commit detection", () => {
 
 test("nudges explicitly permit saving nothing and avoid memory quotas", () => {
   assert.match(MILESTONE_NUDGE, /Otherwise ignore/);
+  assert.match(NO_HANDOFF_MILESTONE_NUDGE, /Never save session progress/);
+  assert.doesNotMatch(NO_HANDOFF_MILESTONE_NUDGE, /Reconcile the handoff/);
 });
 
 test("contextBand finds the highest reached named threshold", () => {
@@ -40,7 +42,7 @@ test("bandText matches each band's exact wording", () => {
   const handoff = { handoff: true, compactTool: false };
   assert.equal(
     bandText(50.4, "save", handoff),
-    "[pi-notebook] Context window 50% full. Consider saving any durable knowledge worth keeping.",
+    "[pi-notebook] Context window 50% full. Consider saving durable knowledge at the appropriate scope. Global memories must apply across projects and must not contain session progress.",
   );
   assert.equal(
     bandText(70, "handoff", handoff),
@@ -60,6 +62,6 @@ test("bandText falls back to save wording without a project handoff", () => {
   const noHandoff = { handoff: false, compactTool: false };
   assert.equal(
     bandText(85, "compact", noHandoff),
-    "[pi-notebook] Context window 85% full. Consider saving any durable knowledge worth keeping.",
+    "[pi-notebook] Context window 85% full. Consider saving durable knowledge at the appropriate scope. Global memories must apply across projects and must not contain session progress.",
   );
 });

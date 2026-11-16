@@ -1,6 +1,6 @@
 import { NUDGE_TYPE } from "../constants.ts";
 import { locate, type Runtime } from "../runtime.ts";
-import { bandText, MILESTONE_NUDGE } from "../signals.ts";
+import { bandText, MILESTONE_NUDGE, NO_HANDOFF_MILESTONE_NUDGE } from "../signals.ts";
 
 export function registerTurnEvents({
   pi,
@@ -11,15 +11,17 @@ export function registerTurnEvents({
     const percent = ctx.getContextUsage()?.percent ?? 0;
     const milestone = session.endTurn({ contextPercent: percent });
     const band = session.crossBand(percent);
+    const { scope } = locate(ctx.cwd);
     refreshStatus(ctx);
     const { cfg } = session;
     if (!cfg.nudgeModel) return;
     const notes: string[] = [];
     if (band !== undefined) {
-      const handoff = !!locate(ctx.cwd).scope;
+      const handoff = !!scope;
       notes.push(bandText(percent, band, { handoff, compactTool: cfg.handoffCompaction && handoff }));
     }
-    if (milestone) notes.push(MILESTONE_NUDGE);
+    if (milestone)
+      notes.push(scope ? MILESTONE_NUDGE : NO_HANDOFF_MILESTONE_NUDGE);
     if (!notes.length) return;
     const content = notes.join("\n\n");
     // A final turn has no next request in this run, so defer to the next prompt.

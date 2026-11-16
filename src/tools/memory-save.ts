@@ -34,10 +34,11 @@ export function registerMemorySave(rt: Runtime): void {
       "Save useful knowledge for future sessions, or update a memory by ref.",
       "Put the actionable conclusion first, then supporting reasons or evidence. Save what changes a future action or prevents costly rediscovery; saving nothing is fine.",
       "Keep one coherent topic current: update it rather than appending a changelog. When correcting a claim, reconcile related memories that repeat it. Do not present guesses as verified facts.",
-      "Optional tags help retrieval; reuse existing terms. Optional files identify related project paths.",
-      "Use kind rule only for explicit lasting user instructions; rules are always available. The user can approve global saves, keep them project-only, or reject them. Respect their scope choice without retrying. Temporary progress belongs in handoff_update.",
+      "Optional tags help retrieval; reuse existing terms. When saving to a project, optional files identify related project paths.",
+      "Use kind rule only for explicit lasting user instructions; rules are always available. The user can approve global saves, keep them project-only, or reject them. Respect their scope choice without retrying.",
+      "When no project is detected, new memories default to global and require user confirmation. Save globally only stable knowledge that applies across projects or an explicit user-approved global rule. Never save the current session's task, progress, plans, blockers, transcript, or project-specific details globally; if nothing independently useful across projects remains, save nothing. With a project notebook, temporary progress belongs in handoff_update; outside a project, keep it in the conversation, not the global notebook.",
     ].join("\n"),
-    promptSnippet: "memory_save: save or update durable knowledge; optionally record a user-approved rule",
+    promptSnippet: "memory_save: save durable knowledge; without a project, global saves must apply across projects and must not contain session progress",
     parameters: Type.Object({
       title: Type.Optional(Type.String({ description: "Short topic label; required for a new memory, or the complete instruction for a rule." })),
       content: Type.Optional(Type.String({ description: "Conclusion-first Markdown; required for a new memory. When updating, replace with a complete current account, not just the latest change." })),
@@ -45,7 +46,7 @@ export function registerMemorySave(rt: Runtime): void {
       tags: Type.Optional(Type.Array(Type.String(), { description: "Optional retrieval hints, e.g. ['deployment', 'systemd']." })),
       files: Type.Optional(Type.Array(Type.String(), { description: "Related project-relative files or directories." })),
       scope: Type.Optional(StringEnum(["project", "global"] as const, {
-        description: "Project by default. Global is for knowledge or user instructions that apply across projects.",
+        description: "Project by default when in a project; global by default otherwise. Global is only for durable cross-project knowledge or explicit user instructions, never current-session progress.",
       })),
       kind: Type.Optional(StringEnum(["memory", "rule"] as const, {
         description: "Memory by default; rule only for an explicit lasting user instruction.",
@@ -59,7 +60,9 @@ export function registerMemorySave(rt: Runtime): void {
       const parsed = p.ref ? parseRef(p.ref) : undefined;
       if (p.ref && !parsed) throw new Error('Invalid ref. Use M3 or ~M1; list refs with memory_search "*".');
       if (p.ref && p.kind === "rule") throw new Error("Rules are edited with /nb:prefs, not a memory ref.");
-      let globalTarget = parsed ? parsed.global : p.scope === "global";
+      let globalTarget = parsed
+        ? parsed.global
+        : p.scope === "global" || (!project && p.scope !== "project");
       const proposedGlobal = globalTarget;
       if (parsed && p.scope && (p.scope === "global") !== parsed.global)
         throw new Error("scope conflicts with ref; omit scope when updating.");
@@ -85,8 +88,10 @@ export function registerMemorySave(rt: Runtime): void {
         const projectOption = original
           ? "Save a project-only copy (leave global memory unchanged)"
           : "Save to this project only";
+        const globalNotice =
+          "\n\nGlobal scope is only for durable knowledge or explicit preferences that apply across projects. Never save current-session progress or project-specific details globally.";
         const choice = await ctx.ui.select(
-          `${original ? `Update ${ref(original)}` : p.kind === "rule" ? "Save rule" : "Save memory"}?\n\n${title ?? original?.title}\n\n${clip(body ?? original?.body ?? "", CONFIRM_PREVIEW_CHARS)}`,
+          `${original ? `Update ${ref(original)}` : p.kind === "rule" ? "Save rule" : "Save memory"}?\n\n${title ?? original?.title}\n\n${clip(body ?? original?.body ?? "", CONFIRM_PREVIEW_CHARS)}${globalNotice}`,
           [globalOption, ...(project ? [projectOption] : []), "Reject"],
         );
         if (choice !== globalOption && choice !== projectOption)

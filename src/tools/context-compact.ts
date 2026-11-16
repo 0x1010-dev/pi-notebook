@@ -7,12 +7,14 @@ export function registerContextCompact(rt: Runtime): void {
     name: "context_compact",
     label: "Notebook",
     description:
-      "Compact the conversation once the handoff is current. The handoff replaces earlier context, so update it first with handoff_update. Compaction runs after this response ends; work resumes from the handoff.",
-    promptSnippet: "context_compact: compact the conversation after updating the handoff",
+      "Project notebooks only. Compact the conversation once the project handoff is current. The handoff replaces earlier context, so update it first with handoff_update. Compaction runs after this response ends; work resumes from the handoff. Never store session progress in the global notebook.",
+    promptSnippet: "context_compact: compact after updating a project handoff; unavailable without a project notebook",
     parameters: Type.Object({}),
     executionMode: "sequential",
     async execute(_id, _p, _signal, _onUpdate, ctx) {
-      const { scope } = locate(ctx.cwd);
+      const { project, scope } = locate(ctx.cwd);
+      if (!project)
+        throw new Error("No project detected. Compaction needs a project handoff; keep session progress in the conversation, not global memory.");
       if (!scope) throw new Error("No project notebook. Run /nb:init first.");
       const percent = ctx.getContextUsage()?.percent;
       if (percent == null)

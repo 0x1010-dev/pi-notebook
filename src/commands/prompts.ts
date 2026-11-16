@@ -7,10 +7,10 @@ import { listAll } from "../store.ts";
 export function registerPromptCommands(rt: Runtime): void {
   rt.pi.registerCommand("nb:wrap", {
     description:
-      "Save worthwhile knowledge and reconcile the current handoff",
+      "Save worthwhile knowledge and reconcile the current handoff when available",
     handler: async (_args, ctx) => {
-      const { scope } = locate(ctx.cwd);
-      rt.sendOwnPrompt(ctx, wrapPrompt(!!scope));
+      const { project, scope } = locate(ctx.cwd);
+      rt.sendOwnPrompt(ctx, wrapPrompt(!!project, !!scope));
     },
   });
 
@@ -24,7 +24,7 @@ export function registerPromptCommands(rt: Runtime): void {
         ctx.ui.notify("Nothing to curate yet.", "info");
         return;
       }
-      rt.sendOwnPrompt(ctx, curatePrompt());
+      rt.sendOwnPrompt(ctx, curatePrompt(!!scope));
     },
   });
 }

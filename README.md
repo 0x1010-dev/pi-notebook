@@ -89,8 +89,9 @@ pi-notebook section before and after a successful call and warns only when that
 section changed, including creation or removal. Edits to human-owned content
 outside the section do not trigger this warning.
 
-Projects are git roots. `/nb:init` creates a notebook, or the first project
-memory save offers to create one. `local` storage keeps the same layout under
+Projects are detected at git roots or directories with an existing notebook.
+`/nb:init` creates a notebook, or the first project memory save offers to create
+one. `local` storage keeps the same layout under
 `~/.pi/agent/pi-notebook/projects/` instead of the repository.
 
 ## Tools
@@ -116,9 +117,15 @@ memory save offers to create one. `local` storage keeps the same layout under
   only**, or **Reject**. Project-only is offered when inside a project. For a
   global update, project-only saves a local copy with the proposed changes and
   leaves the global original unchanged. Global refs look like `~M1`.
+- Outside a detected project, a new memory save defaults to global and asks for
+  confirmation. Global memories must be durable and useful across projects;
+  never save current-session goals, progress, blockers, plans, or project-specific
+  details globally. If nothing meets that scope, save nothing. Temporary progress
+  outside a project stays in the conversation; there is no global handoff.
 - `kind: "rule"` records a short explicit user instruction. Project is the default
-  scope; global rules apply everywhere. The user confirms each addition, with
-  the same project-only or reject choices for global rule proposals.
+  scope inside a project; without one, saves default to global. Global rules apply
+  everywhere. The user confirms each addition, with the same project-only or
+  reject choices for global rule proposals.
 - Related memories are advisory: a similar title does not block saving.
 - Secret-looking values are rejected. There are no hard title/content length caps.
 
@@ -136,6 +143,10 @@ when their related paths changed, including uncommitted changes. Changing tags
 alone does not renew the code-verification baseline.
 
 ### `handoff_update`
+
+Handoffs are project-scoped and require an initialized project notebook. Without
+a detected project, keep session progress in the conversation; do not save it to
+the global notebook.
 
 Replace the snapshot with `goal`, `status`, and `next_steps` (all required).
 Optional `blockers` and `notes` are cleared when omitted. This deliberately avoids
@@ -163,8 +174,11 @@ unnecessarily, and preserve still-current facts before removing mixed-topic entr
 
 ## Automatic behavior
 
-The system prompt contains rules, a handoff pointer and a budgeted memory-title
-index. Relevant active memories are attached to user prompts automatically.
+The system prompt contains applicable rules and a budgeted memory-title index;
+project notebooks also get a handoff pointer. Without a detected project, the
+prompt limits global memories to durable cross-project knowledge and explicitly
+forbids saving current-session progress globally. Relevant active memories are
+attached to user prompts automatically.
 Single-topic queries, tags, paths and strong content matches can trigger recall.
 Automatic excerpts share a 6,000-character budget, put the beginning of each
 memory first, and point to full entries when truncated.

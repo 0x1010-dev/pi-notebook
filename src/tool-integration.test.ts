@@ -320,6 +320,45 @@ test("global proposals outside a project do not offer a project-only option", as
   assert.deepEqual(h.selections[0], ["Save globally", "Reject"]);
 });
 
+test("new saves outside a project default to confirmed global scope", async () => {
+  const h = harness();
+  const cwd = join(root, `outside-${++next}`);
+  mkdirSync(cwd, { recursive: true });
+  h.ctx.cwd = cwd;
+  assert.equal(locate(cwd).project, undefined);
+
+  const saved = await h.call("memory_save", {
+    title: "Shared tooling",
+    content: "Use the same formatter across repositories.",
+  });
+
+  assert.match(JSON.stringify(saved.content), /Saved ~M\d+ .* globally/);
+  assert.ok(listAll(locate(cwd).global).some((entry) => entry.title === "Shared tooling"));
+  assert.deepEqual(h.selections[0], ["Save globally", "Reject"]);
+  await assert.rejects(
+    h.call("memory_save", {
+      title: "Project-only",
+      content: "Only applies here.",
+      scope: "project",
+    }),
+    /Not in a project/,
+  );
+});
+
+test("project handoff and compaction tools explain global-only limits", async () => {
+  const h = harness();
+  const cwd = join(root, `no-repo-${++next}`);
+  mkdirSync(cwd, { recursive: true });
+  h.ctx.cwd = cwd;
+
+  await assert.rejects(h.call("handoff_update", {
+    goal: "Continue", status: "Paused", next_steps: ["Resume"],
+  }), /Handoffs are project-scoped.*do not save session progress/);
+  await assert.rejects(h.call("context_compact", {}), /Compaction needs a project handoff/);
+  const handoff = await h.call("memory_search", { query: "handoff" });
+  assert.match(JSON.stringify(handoff.content), /Handoffs are project-scoped/);
+});
+
 test("blank input, invalid refs and secrets surface errors without saving", async () => {
   const h = harness();
   await assert.rejects(h.call("memory_save", { title: "Empty" }), /needs content/);

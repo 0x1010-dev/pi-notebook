@@ -22,6 +22,9 @@ export const PREFERENCE_NUDGE =
 export const MILESTONE_NUDGE =
   "[pi-notebook] Work was committed. If there is worthwhile durable knowledge, save the conclusion or update its existing memory. Reconcile the handoff if unfinished work changed. Otherwise ignore this note. Do this at a natural stopping point, not in the middle of a step.";
 
+export const NO_HANDOFF_MILESTONE_NUDGE =
+  "[pi-notebook] Work was committed. If worthwhile durable knowledge remains, save it at the appropriate scope. Never save session progress, task status, blockers or plans as a global memory; use a project handoff only when a project notebook exists. Otherwise ignore this note. Do this at a natural stopping point, not in the middle of a step.";
+
 export type ContextBand = keyof ContextBands;
 
 /** Highest band whose threshold `percent` has reached. */
@@ -50,7 +53,7 @@ export function bandText(
   const usage = usageText(percent);
   const kind = opts.handoff ? band : "save";
   if (kind === "save")
-    return `${usage} Consider saving any durable knowledge worth keeping.`;
+    return `${usage} Consider saving durable knowledge at the appropriate scope. Global memories must apply across projects and must not contain session progress.`;
   if (kind === "handoff")
     return `${usage} Consider updating the handoff if progress has changed.`;
   return opts.compactTool

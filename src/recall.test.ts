@@ -67,6 +67,20 @@ test("human edits change fingerprints and new snapshots without rewriting memory
   assert.match(buildSection({ ...located, budgetTokens: 1500, globalLimit: 20 }), /Human-edited title/);
 });
 
+test("global-only prompt guidance forbids saving session progress as global memory", () => {
+  const { located } = fixture();
+  const section = buildSection({
+    ...located,
+    project: undefined,
+    scope: undefined,
+    budgetTokens: 1500,
+    globalLimit: 20,
+  });
+  assert.match(section, /global memories are only for durable knowledge that applies across projects/);
+  assert.match(section, /Never save this session's task, progress/);
+  assert.doesNotMatch(section, /handoff_update|handoff holds unfinished work/);
+});
+
 test("resuming work supplies the handoff without suppressing relevant durable knowledge", () => {
   const { located, session } = fixture();
   saveEntry(located.scope, "Braille rendering", "Use the canonical dot table.");

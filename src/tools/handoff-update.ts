@@ -10,8 +10,8 @@ export function registerHandoffUpdate(rt: Runtime): void {
     name: "handoff_update",
     label: "Notebook",
     description:
-      "Replace the project's handoff with one consistent snapshot of unfinished work at a milestone or wrap-up. Include the current goal, status and all remaining next actions. Clear completed work; do not write a session log. Omitted blockers and notes are cleared, not retained. Read the current handoff first if you need it.",
-    promptSnippet: "handoff_update: replace the current goal, status and remaining actions as a consistent snapshot",
+      "Project notebooks only. Replace the project's handoff with one consistent snapshot of unfinished work at a milestone or wrap-up. Include the current goal, status and all remaining next actions. Clear completed work; do not write a session log. Omitted blockers and notes are cleared, not retained. Never use global memory to store session progress. Read the current handoff first if you need it.",
+    promptSnippet: "handoff_update: update a project handoff; unavailable without a project notebook",
     parameters: Type.Object({
       goal: Type.String({ description: "Current goal, one line." }),
       status: Type.String({ description: "Where things actually stand, briefly." }),
@@ -22,7 +22,9 @@ export function registerHandoffUpdate(rt: Runtime): void {
     executionMode: "sequential",
     async execute(_id, p, _signal, _onUpdate, ctx) {
       const { project, scope } = locate(ctx.cwd);
-      if (!project || !scope) throw new Error("No project notebook. Run /nb:init before saving a handoff.");
+      if (!project)
+        throw new Error("No project detected. Handoffs are project-scoped; do not save session progress to the global notebook.");
+      if (!scope) throw new Error("No project notebook. Run /nb:init before saving a handoff.");
       if (!p.goal.trim() || !p.status.trim()) throw new Error("A handoff needs a nonblank goal and status.");
       const secret = findSecret([p.goal, p.status, ...p.next_steps, ...(p.blockers ?? []), p.notes ?? ""].join("\n"));
       if (secret) throw new Error(secretError(secret));

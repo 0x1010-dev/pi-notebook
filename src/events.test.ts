@@ -55,6 +55,7 @@ function harness({ handoff = true, nextSteps = ["Finish"], hasUI = false } = {})
   } as unknown as ExtensionContext;
   return {
     session, sent, compactions, scope, notifications,
+    setCwd(cwd: string) { ctx.cwd = cwd; },
     setUsage(percent: number | null | undefined) { usage = percent === undefined ? undefined : { percent }; },
     emit: (name: string, event: object) => handlers.get(name)!(event, ctx),
   };
@@ -241,6 +242,17 @@ test("the compaction band mentions context_compact only when it is offered", asy
   const on = harness();
   on.setUsage(90);
   assert.match((await on.emit("turn_end", midRun)).entries[0].content, /context_compact/);
+});
+
+test("global-only context nudges never recommend saving session progress", async () => {
+  const h = harness();
+  const cwd = join(root, `outside-${++next}`);
+  mkdirSync(cwd, { recursive: true });
+  h.setCwd(cwd);
+  h.setUsage(90);
+  const result = await h.emit("turn_end", midRun);
+  assert.match(result.entries[0].content, /Global memories must apply across projects/);
+  assert.doesNotMatch(result.entries[0].content, /update the handoff|context_compact/i);
 });
 
 test("a scheduled compaction runs when the agent settles, then resumes the work", async () => {
