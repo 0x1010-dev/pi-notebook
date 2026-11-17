@@ -1,3 +1,5 @@
+> **Moved:** this extension now lives in the [pi-0x1010](https://github.com/0x1010-dev/pi-0x1010) monorepo under [](https://github.com/0x1010-dev/pi-0x1010/tree/main/extensions/pi-notebook). Full history was folded in. This repo is archived.
+
 # pi-notebook
 
 Durable, readable memory for [Pi](https://github.com/earendil-works/pi), designed
